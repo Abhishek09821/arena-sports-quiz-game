@@ -1,0 +1,21 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Copy, Radio, Swords, TimerReset, Users } from "lucide-react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+import { audio } from "@/lib/audio";
+import { QUESTIONS } from "@/data/questions";
+
+function roomId(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
+
+export default function Multiplayer(){
+ const [code,setCode]=useState(''); const [joined,setJoined]=useState(false); const [name,setName]=useState('Player 1'); const [mode,setMode]=useState<'buzzer'|'sprint'>('buzzer'); const [events,setEvents]=useState<string[]>([]); const [latency,setLatency]=useState<number|null>(null);
+ const channel=useMemo(()=>supabase&&code?supabase.channel(`arena:${code}`):null,[code]);
+ useEffect(()=>{ if(!channel||!joined)return; channel.on('broadcast',{event:'ping'},({payload})=>{channel.send({type:'broadcast',event:'pong',payload:{t:payload.t,from:name}})}).on('broadcast',{event:'pong'},({payload})=>{setLatency(Math.max(0,Date.now()-payload.t));setEvents(e=>[`Pong from ${payload.from}`,...e].slice(0,5))}).subscribe(); return ()=>{void channel.unsubscribe()} },[channel,joined,name]);
+ const enter=()=>{audio.unlock();if(!code)setCode(roomId());setJoined(true);setEvents(['Room ready.']);};
+ const sendPing=async()=>{if(!channel)return;const t=Date.now();await channel.send({type:'broadcast',event:'ping',payload:{t,from:name}});setEvents(e=>['Ping sent',...e].slice(0,5));};
+ return <main className="container" style={{paddingBottom:70}}><div style={{padding:'45px 0 25px'}}><Link href="/" className="nav-link" style={{display:'inline-flex'}}><ArrowLeft size={16}/> Home</Link><div className="eyebrow" style={{marginTop:30}}>Multiplayer arena</div><h1 style={{fontFamily:'Space Grotesk',fontSize:'clamp(46px,7vw,78px)',letterSpacing:'-.06em',margin:'10px 0'}}>Beat the person<br/>in the room.</h1><p className="muted" style={{maxWidth:720}}>Two modes: first-to-buzz for head-to-head questions, and 60-second Sprint for the player who can stack the most correct answers.</p></div>
+ <div className="grid grid-2"><div className="card"><div className="eyebrow">1 · Room</div><h3>Enter the arena</h3><div className="form-grid"><label className="label">Display name<input className="input" value={name} onChange={e=>setName(e.target.value)} /></label><label className="label">Room code<input className="input" value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="ABC123" maxLength={8}/></label><div className="grid grid-2">{(['buzzer','sprint'] as const).map(m=><button key={m} className={`card mode-tile ${mode===m?'active':''}`} onClick={()=>setMode(m)}><div>{m==='buzzer'?<Swords size={20}/>:<TimerReset size={20}/>}</div><b style={{display:'block',marginTop:10}}>{m==='buzzer'?'Buzzer':'60s Sprint'}</b><span className="small muted">{m==='buzzer'?'Fastest hand wins':'Most correct wins'}</span></button>)}</div><button className="btn primary" onClick={enter}>{joined?'Room connected':'Create / Join room'}</button></div></div>
+ <div className="card"><div className="eyebrow">2 · Realtime</div><h3>{supabase?'Supabase enabled':'Add Supabase keys'}</h3><p className="muted">{supabase?'The prototype room channel is connected. Use this surface to test low-latency event delivery before the full synchronized game state is wired.':'Create a Supabase project and add NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local.'}</p><div className="notice" style={{marginTop:14}}>Production architecture: room channel → presence → question assignment → buzzer lock → answer event → score update → next question. Keep the server authoritative once the question bank becomes public.</div>{joined&&<div style={{marginTop:16}}><div className="pill"><Users size={13}/>&nbsp; Room {code}</div><button className="btn ghost" style={{marginTop:10}} onClick={()=>navigator.clipboard?.writeText(code)}><Copy size={15}/>Copy code</button><button className="btn" style={{marginTop:10,marginLeft:8}} onClick={sendPing} disabled={!supabase}><Radio size={15}/>Latency test</button>{latency!==null&&<div className="stat" style={{marginTop:14}}>{latency}ms</div>}<div className="small muted" style={{marginTop:8}}>{events.map((e,i)=><div key={i}>{e}</div>)}</div></div>}</div></div>
+ </main>
+}
