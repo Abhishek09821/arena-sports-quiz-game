@@ -1,28 +1,194 @@
 "use client";
-import { useMemo, useState } from "react";
+
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
-import { buildGame } from "@/lib/quiz";
-import { SPORTS, type Difficulty, type Sport } from "@/data/questions";
+import { buildGame, getAvailableCount } from "@/lib/quiz";
+import { SPORT_LIST, SPORT_META, DIFFICULTY_LIST, type Difficulty, type Sport } from "@/data/questions";
 import { useQuizStore } from "@/lib/store";
+import { trackEvent } from "@/lib/analytics";
 import QuizGame from "@/components/QuizGame";
-import { ArrowLeft, Play, Shuffle } from "lucide-react";
+import { ArrowLeft, Play } from "lucide-react";
 import Link from "next/link";
+import { motion } from "motion/react";
 
-const counts = [5,10,15,20];
-const diffs: (Difficulty|"Mixed")[] = ['Mixed','Easy','Medium','Hard','Legendary'];
+const counts = [5, 10, 15, 20];
 
-export default function PlayPage(){
- const params=useSearchParams(); const qs=params.get('sport'); const initial=(SPORTS.some(s=>s.name===qs)?qs:'All Sports') as Sport|'All Sports';
- const [sport,setSport]=useState<Sport|'All Sports'>(initial); const [count,setCount]=useState(10); const [difficulty,setDifficulty]=useState<Difficulty|'Mixed'>('Mixed'); const [started,setStarted]=useState(false);
- const start=()=>{audio.unlock(); useQuizStore.getState().start(buildGame({sport,difficulty,count}),{sport,difficulty,mode:'solo'}); setStarted(true)};
- if(started) return <QuizGame onExit={()=>setStarted(false)} />;
- return <main className="container" style={{paddingBottom:70}}><div style={{padding:'45px 0 25px'}}><Link href="/" className="nav-link" style={{display:'inline-flex'}}><ArrowLeft size={16}/> Home</Link><div className="eyebrow" style={{marginTop:30}}>Solo arena</div><h1 style={{fontFamily:'Space Grotesk',fontSize:'clamp(46px,7vw,78px)',letterSpacing:'-.06em',margin:'10px 0'}}>Build your round.</h1><p className="muted" style={{maxWidth:680}}>Choose the sport, question count and intensity. Every round shuffles the pool and scores speed without turning the UI into a casino.</p></div>
-  <div className="grid grid-2">
-   <div className="card"><div className="eyebrow">1 · Sport</div><h3>What are we playing?</h3><div className="grid grid-2" style={{marginTop:14}}><button className={`card mode-tile ${sport==='All Sports'?'active':''}`} onClick={()=>setSport('All Sports')}><b>🌐 All Sports</b><span className="small muted">Mixed archive</span></button>{SPORTS.map(s=><button key={s.name} className={`card mode-tile ${sport===s.name?'active':''}`} onClick={()=>setSport(s.name)}><b>{s.icon} {s.name}</b><span className="small muted">1990–2026</span></button>)}</div></div>
-   <div className="card"><div className="eyebrow">2 · Round</div><h3>How long?</h3><div className="grid grid-4" style={{marginTop:14}}>{counts.map(n=><button key={n} className={`card mode-tile ${count===n?'active':''}`} onClick={()=>setCount(n)}><div className="stat">{n}</div><div className="small muted">questions</div></button>)}</div><div className="eyebrow" style={{marginTop:28}}>3 · Difficulty</div><div className="grid grid-2" style={{marginTop:14}}>{diffs.map(d=><button key={d} className={`card mode-tile ${difficulty===d?'active':''}`} onClick={()=>setDifficulty(d)}><b>{d==='Mixed'?'🎲 ':d==='Easy'?'🟢 ':d==='Medium'?'🟡 ':d==='Hard'?'🟠 ':'🔴 '}{d}</b><div className="small muted">{d==='Legendary'?'Deep-cut facts & pressure timing': 'Curated difficulty mix'}</div></button>)}</div></div>
-  </div>
-  <div className="card" style={{marginTop:16,display:'flex',justifyContent:'space-between',alignItems:'center',gap:16,flexWrap:'wrap'}}><div><div className="eyebrow">Ready?</div><h3 style={{marginBottom:4}}>{count} questions · {sport} · {difficulty}</h3><div className="small muted">Questions do not repeat inside a round.</div></div><button className="btn primary" onClick={start}><Play size={17}/>Start round</button></div>
-  <div className="notice" style={{marginTop:16}}><Shuffle size={15} style={{verticalAlign:'-3px',marginRight:5}}/> Current MVP uses an original local starter bank. The database layer is designed so this can grow into thousands of verified questions without changing the game UI.</div>
- </main>
+const diffDescriptions: Record<Difficulty | "Mixed", string> = {
+  Mixed: "Curated difficulty mix",
+  Easy: "Great for warming up",
+  Medium: "Balanced challenge",
+  Hard: "Serious sports knowledge",
+  Legendary: "Deep-cut facts & pressure timing",
+};
+
+function PlayContent() {
+  const params = useSearchParams();
+  const qs = params.get("sport");
+  const initial = (SPORT_LIST.some((s) => s === qs) ? qs : "All Sports") as Sport | "All Sports";
+
+  const [sport, setSport] = useState<Sport | "All Sports">(initial);
+  const [count, setCount] = useState(10);
+  const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
+  const [started, setStarted] = useState(false);
+
+  const available = getAvailableCount(sport, difficulty);
+
+  const startGame = () => {
+    audio.unlock();
+    const questions = buildGame({ sport, difficulty, count });
+    useQuizStore.getState().start(questions, { sport, difficulty, mode: "classic" });
+    trackEvent("game_started", { sport, difficulty, count, mode: "classic" });
+    setStarted(true);
+  };
+
+  if (started) return <QuizGame onExit={() => setStarted(false)} />;
+
+  return (
+    <main className="arena-container pb-16">
+      <div className="pt-10 pb-6">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors"
+        >
+          <ArrowLeft size={15} /> Home
+        </Link>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="arena-eyebrow mt-8">Classic Mode</div>
+          <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2">
+            Build your round.
+          </h1>
+          <p className="text-arena-muted max-w-[650px] mt-3">
+            Choose the sport, question count and intensity. Every round shuffles the pool and scores speed.
+          </p>
+        </motion.div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Sport Selection */}
+        <motion.div
+          className="arena-card"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
+          <div className="arena-eyebrow">1 · Sport</div>
+          <h3 className="font-display font-bold tracking-tight mt-1 mb-4">
+            What are we playing?
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <button
+              className="arena-card arena-tile p-3"
+              data-active={sport === "All Sports" ? "true" : undefined}
+              onClick={() => { setSport("All Sports"); audio.select(); }}
+            >
+              <span className="text-xl">🌐</span>
+              <div className="font-bold text-sm mt-1">All Sports</div>
+              <div className="text-xs text-arena-muted">Mixed archive</div>
+            </button>
+            {SPORT_LIST.map((s) => (
+              <button
+                key={s}
+                className="arena-card arena-tile p-3"
+                data-active={sport === s ? "true" : undefined}
+                onClick={() => { setSport(s); audio.select(); }}
+              >
+                <span className="text-xl">{SPORT_META[s].icon}</span>
+                <div className="font-bold text-sm mt-1">{s}</div>
+                <div className="text-xs text-arena-muted">1990–2026</div>
+              </button>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Count & Difficulty */}
+        <motion.div
+          className="arena-card"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <div className="arena-eyebrow">2 · Round Length</div>
+          <h3 className="font-display font-bold tracking-tight mt-1 mb-4">
+            How many questions?
+          </h3>
+          <div className="grid grid-cols-4 gap-2 mb-6">
+            {counts.map((n) => (
+              <button
+                key={n}
+                className="arena-card arena-tile py-3 text-center"
+                data-active={count === n ? "true" : undefined}
+                onClick={() => { setCount(n); audio.select(); }}
+              >
+                <div className="font-display text-2xl font-bold">{n}</div>
+                <div className="text-xs text-arena-muted">questions</div>
+              </button>
+            ))}
+          </div>
+
+          <div className="arena-eyebrow">3 · Difficulty</div>
+          <h3 className="font-display font-bold tracking-tight mt-1 mb-4">
+            How intense?
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {(["Mixed", ...DIFFICULTY_LIST] as const).map((d) => (
+              <button
+                key={d}
+                className="arena-card arena-tile p-3"
+                data-active={difficulty === d ? "true" : undefined}
+                onClick={() => { setDifficulty(d); audio.select(); }}
+              >
+                <span className="text-sm">
+                  {d === "Mixed" ? "🎲" : d === "Easy" ? "🟢" : d === "Medium" ? "🟡" : d === "Hard" ? "🟠" : "🔴"}
+                </span>
+                <div className="font-bold text-sm mt-0.5">{d}</div>
+                <div className="text-xs text-arena-muted">
+                  {diffDescriptions[d]}
+                </div>
+              </button>
+            ))}
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Start Card */}
+      <motion.div
+        className="arena-card mt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+      >
+        <div>
+          <div className="arena-eyebrow">Ready?</div>
+          <h3 className="font-display font-bold tracking-tight mt-1">
+            {count} questions · {sport} · {difficulty}
+          </h3>
+          <div className="text-sm text-arena-muted mt-0.5">
+            {available} questions available · No repeats within a round
+          </div>
+        </div>
+        <button
+          className="arena-btn arena-btn-primary w-full sm:w-auto"
+          onClick={startGame}
+          disabled={available === 0}
+        >
+          <Play size={17} />
+          Start Round
+        </button>
+      </motion.div>
+    </main>
+  );
+}
+
+export default function PlayPage() {
+  return (
+    <Suspense fallback={<div className="arena-container py-20"><div className="arena-skeleton h-12 w-48" /></div>}>
+      <PlayContent />
+    </Suspense>
+  );
 }

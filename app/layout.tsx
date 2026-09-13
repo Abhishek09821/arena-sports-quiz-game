@@ -1,8 +1,39 @@
-import "./globals.css";
-import Link from "next/link";
+import "@/app/globals.css";
+import type { Metadata } from "next";
+import ArenaHeader from "@/components/ArenaHeader";
 
-export const metadata = { title: "Arena — Sports Quiz", description: "Fast, polished sports trivia from 1990–2026." };
+export const metadata: Metadata = {
+  title: "Arena — Premium Sports Quiz",
+  description:
+    "Test your sports knowledge across 8 sports from 1990 to 2026. Fast gameplay, premium UI, and competitive modes.",
+  keywords: ["sports quiz", "trivia", "cricket", "football", "basketball", "tennis", "formula 1", "arena"],
+  openGraph: {
+    title: "Arena — Premium Sports Quiz",
+    description: "Test your sports knowledge. 8 sports. 1990–2026. Multiple game modes.",
+    type: "website",
+  },
+};
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <div className="app-shell"><div className="noise" /><header className="container nav"><Link href="/" className="brand">ARENA<span>.</span></Link><nav className="nav-links"><Link className="nav-link" href="/play">Play</Link><Link className="nav-link" href="/multiplayer">1v1</Link><Link className="nav-link" href="/challenge">Challenge</Link></nav></header>{children}</div>;
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en" className="dark">
+      <head>
+        <link
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="antialiased">
+        <div className="min-h-screen relative overflow-hidden">
+          <div className="noise" />
+          <ArenaHeader />
+          {children}
+        </div>
+      </body>
+    </html>
+  );
 }
