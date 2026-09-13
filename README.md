@@ -169,6 +169,4 @@ arena-sports-quiz-mvp/
 
 ---
 
-## License
 
-MIT License.
