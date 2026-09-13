@@ -11,6 +11,8 @@ import {
   WifiOff,
   Crown,
   AlertCircle,
+  Check,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -261,15 +263,16 @@ export default function MultiplayerPage() {
           </Link>
 
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.2, 0.9, 0.3, 1] }}
           >
             <div className="arena-eyebrow mt-8">1v1 Buzzer</div>
-            <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2">
+            <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2 font-bold">
               Beat the person<br />
               <span className="text-arena-bad">in the room.</span>
             </h1>
-            <p className="text-arena-muted max-w-[700px] mt-3">
+            <p className="text-arena-muted max-w-[700px] mt-3 leading-relaxed">
               Create a room, share the code, and race to buzz first.
               The fastest hand gets to answer.{" "}
               {!supabase && (
@@ -284,17 +287,17 @@ export default function MultiplayerPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
           {/* Create */}
           <motion.div
-            className="arena-card"
-            initial={{ opacity: 0, y: 12 }}
+            className="arena-card arena-card-shine"
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
+            transition={{ delay: 0.05, duration: 0.4 }}
           >
             <div className="arena-eyebrow">Create</div>
-            <h3 className="font-display font-bold tracking-tight mt-1 mb-4">
+            <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
               Start a new room
             </h3>
             <label className="block mb-3">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-2">
                 Display Name
               </span>
               <input
@@ -304,56 +307,66 @@ export default function MultiplayerPage() {
                 maxLength={20}
               />
             </label>
-            <button
+            <motion.button
               className="arena-btn arena-btn-primary w-full justify-center"
               onClick={createRoom}
               disabled={!supabase}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
             >
               <Swords size={17} />
               Create Room
-            </button>
+            </motion.button>
           </motion.div>
 
           {/* Join */}
           <motion.div
-            className="arena-card"
-            initial={{ opacity: 0, y: 12 }}
+            className="arena-card arena-card-shine"
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.1, duration: 0.4 }}
           >
             <div className="arena-eyebrow">Join</div>
-            <h3 className="font-display font-bold tracking-tight mt-1 mb-4">
+            <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
               Enter a room code
             </h3>
             <label className="block mb-3">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-2">
                 Room Code
               </span>
               <input
-                className="arena-input font-display text-xl tracking-widest text-center uppercase"
+                className="arena-input font-display text-xl tracking-[0.2em] text-center uppercase"
                 value={codeInput}
                 onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
                 placeholder="ABC123"
                 maxLength={8}
               />
             </label>
-            <button
+            <motion.button
               className="arena-btn arena-btn-ghost w-full justify-center"
               onClick={joinRoom}
               disabled={!supabase || codeInput.length < 4}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
             >
               <Users size={17} />
               Join Room
-            </button>
+            </motion.button>
           </motion.div>
         </div>
 
         {!supabase && (
-          <div className="arena-notice mt-4 max-w-3xl" data-variant="error">
+          <motion.div
+            className="arena-notice mt-4 max-w-3xl"
+            data-variant="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+          >
             <AlertCircle size={14} className="inline mr-1 align-[-2px]" />
             Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
             to .env.local to enable realtime multiplayer.
-          </div>
+          </motion.div>
         )}
       </main>
     );
@@ -378,20 +391,32 @@ export default function MultiplayerPage() {
             className="arena-card text-center"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
           >
-            <div className="arena-eyebrow mb-2">Room Code</div>
-            <div className="font-display text-5xl font-bold tracking-[0.12em] text-arena-accent mb-4">
-              {roomCode}
-            </div>
-            <button className="arena-btn arena-btn-ghost mx-auto" onClick={copyCode}>
-              <Copy size={15} />
-              Copy Code
-            </button>
+            <div className="arena-eyebrow mb-3 justify-center">Room Code</div>
 
-            <div className="mt-6 border-t border-arena-line pt-4">
-              <div className="flex items-center justify-center gap-2 mb-3">
+            {/* Glowing room code */}
+            <div className="font-display text-5xl font-bold tracking-[0.16em] mb-5 arena-glow-halo inline-block">
+              <span className="arena-gradient-text">{roomCode}</span>
+            </div>
+
+            <div>
+              <motion.button
+                className="arena-btn arena-btn-ghost mx-auto"
+                onClick={copyCode}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Copy size={15} />
+                Copy Code
+              </motion.button>
+            </div>
+
+            <div className="mt-6 border-t border-arena-line pt-5">
+              <div className="flex items-center justify-center gap-2 mb-4">
                 {connected ? (
-                  <Wifi size={14} className="text-arena-good" />
+                  <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}>
+                    <Wifi size={14} className="text-arena-good" />
+                  </motion.div>
                 ) : (
                   <WifiOff size={14} className="text-arena-bad" />
                 )}
@@ -405,56 +430,83 @@ export default function MultiplayerPage() {
               </div>
               <div className="grid gap-2">
                 {Object.entries(players).map(([id, p]) => (
-                  <div
+                  <motion.div
                     key={id}
-                    className="arena-pill justify-between px-4 py-2"
+                    className="flex items-center justify-between px-4 py-3 rounded-xl border border-arena-line bg-white/[.02]"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3 }}
                   >
-                    <span>
-                      {p.name}
-                      {id === myIdRef.current ? " (you)" : ""}
-                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className="w-8 h-8 rounded-full grid place-items-center text-xs font-bold"
+                        style={{
+                          background: id === myIdRef.current ? "rgba(0, 212, 255, 0.12)" : "rgba(168, 85, 247, 0.12)",
+                          color: id === myIdRef.current ? "#00d4ff" : "#a855f7",
+                        }}
+                      >
+                        {p.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="font-medium">
+                        {p.name}
+                        {id === myIdRef.current ? " (you)" : ""}
+                      </span>
+                    </div>
                     <span
-                      className={
-                        p.ready
-                          ? "text-arena-good"
-                          : "text-arena-muted"
-                      }
+                      className={`text-sm font-semibold ${
+                        p.ready ? "text-arena-good" : "text-arena-muted"
+                      }`}
                     >
                       {p.ready ? "Ready ✓" : "Waiting..."}
                     </span>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
 
-              <div className="flex gap-2 justify-center mt-5">
+              <div className="flex gap-2 justify-center mt-6">
                 {!players[myIdRef.current]?.ready && (
-                  <button
+                  <motion.button
                     className="arena-btn arena-btn-primary"
                     onClick={sendReady}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
                   >
-                    I'm Ready
-                  </button>
+                    I&apos;m Ready
+                  </motion.button>
                 )}
                 {allReady && (
-                  <button
+                  <motion.button
                     className="arena-btn arena-btn-primary"
                     onClick={startGame}
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
                   >
                     <Swords size={16} />
                     Start Game
-                  </button>
+                  </motion.button>
                 )}
               </div>
             </div>
 
-            {/* Event log */}
-            <div className="mt-4 text-left">
-              {events.map((e, i) => (
-                <div key={i} className="text-xs text-arena-muted py-0.5">
-                  {e}
-                </div>
-              ))}
-            </div>
+            {/* Event log — terminal style */}
+            {events.length > 0 && (
+              <div className="mt-5 text-left bg-black/20 rounded-xl p-3 border border-arena-line">
+                {events.map((e, i) => (
+                  <motion.div
+                    key={i}
+                    className="text-xs text-arena-muted py-0.5 font-mono"
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <span className="text-arena-accent/50 mr-1.5">›</span>
+                    {e}
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </motion.div>
         </div>
       </main>
@@ -467,12 +519,12 @@ export default function MultiplayerPage() {
       <main className="arena-container pb-16">
         {/* Score bar */}
         <div className="flex justify-between items-center py-4">
-          <div className="flex gap-3">
-            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold">
-              You: <span className="text-arena-accent">{myScore}</span>
+          <div className="flex gap-2.5">
+            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
+              You: <span className="text-arena-accent font-display">{myScore}</span>
             </div>
-            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold">
-              Opp: <span className="text-arena-bad">{opponentScore}</span>
+            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
+              Opp: <span className="text-arena-bad font-display">{opponentScore}</span>
             </div>
           </div>
           <div className="arena-pill">
@@ -485,28 +537,28 @@ export default function MultiplayerPage() {
           <motion.div
             key={currentQ}
             className="arena-question-card mt-2"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0, y: 20, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -14, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: [0.2, 0.9, 0.3, 1] }}
           >
             <div className="flex gap-2 mb-3">
               <span className="arena-pill">{q.sport}</span>
               <span className="arena-pill">{q.difficulty}</span>
             </div>
-            <h2 className="font-display text-[clamp(22px,3.5vw,38px)] leading-[1.12] tracking-tight mb-6">
+            <h2 className="font-display text-[clamp(22px,3.5vw,38px)] leading-[1.12] tracking-tight mb-6 font-bold">
               {q.question}
             </h2>
 
             {/* Buzzer phase */}
             {!buzzWinner && (
-              <div className="flex justify-center py-8">
+              <div className="flex justify-center py-10">
                 <motion.button
                   className="arena-buzzer"
                   onClick={buzz}
                   disabled={myBuzzed}
-                  whileTap={{ scale: 0.9 }}
-                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.88 }}
+                  whileHover={{ scale: 1.06 }}
                 >
                   BUZZ!
                 </motion.button>
@@ -521,7 +573,10 @@ export default function MultiplayerPage() {
                     key={i}
                     className="arena-answer"
                     onClick={() => submitAnswer(i)}
-                    whileTap={{ scale: 0.985 }}
+                    whileTap={{ scale: 0.98 }}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.04 * i }}
                   >
                     <span className="arena-answer-key">
                       {["A", "B", "C", "D"][i]}
@@ -534,10 +589,14 @@ export default function MultiplayerPage() {
 
             {/* Waiting for buzz winner to answer */}
             {buzzWinner && !showAnswer && !iAmBuzzWinner && (
-              <div className="text-center py-8 text-arena-muted">
-                <div className="font-display text-xl mb-2">
+              <div className="text-center py-10 text-arena-muted">
+                <motion.div
+                  className="font-display text-xl mb-2"
+                  animate={{ opacity: [0.5, 1, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
                   Opponent is answering...
-                </div>
+                </motion.div>
               </div>
             )}
 
@@ -552,16 +611,25 @@ export default function MultiplayerPage() {
                         ? "wrong"
                         : "dim";
                   return (
-                    <div
+                    <motion.div
                       key={i}
                       className="arena-answer"
                       data-state={state}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.03 * i }}
                     >
                       <span className="arena-answer-key">
                         {["A", "B", "C", "D"][i]}
                       </span>
                       <span className="text-[15px]">{option}</span>
-                    </div>
+                      {i === q.answer && (
+                        <Check size={16} className="text-arena-good flex-shrink-0" />
+                      )}
+                      {i === selectedAnswer && i !== q.answer && (
+                        <X size={16} className="text-arena-bad flex-shrink-0" />
+                      )}
+                    </motion.div>
                   );
                 })}
               </div>
@@ -570,13 +638,16 @@ export default function MultiplayerPage() {
         </AnimatePresence>
 
         {/* Event log */}
-        <div className="mt-4">
-          {events.slice(0, 3).map((e, i) => (
-            <div key={i} className="text-xs text-arena-muted py-0.5">
-              {e}
-            </div>
-          ))}
-        </div>
+        {events.length > 0 && (
+          <div className="mt-4 bg-black/15 rounded-xl p-3 border border-arena-line">
+            {events.slice(0, 3).map((e, i) => (
+              <div key={i} className="text-xs text-arena-muted py-0.5 font-mono">
+                <span className="text-arena-accent/50 mr-1.5">›</span>
+                {e}
+              </div>
+            ))}
+          </div>
+        )}
       </main>
     );
   }
@@ -591,19 +662,28 @@ export default function MultiplayerPage() {
         <div className="min-h-[60vh] flex items-center justify-center">
           <motion.div
             className="text-center max-w-lg"
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
           >
-            <div className="arena-eyebrow mb-4">
+            <div className="arena-eyebrow mb-5 justify-center">
               {won ? "Victory" : tied ? "Draw" : "Defeat"}
             </div>
-            {won && <Crown size={48} className="text-arena-warn mx-auto mb-4" />}
-            <div className="font-display text-6xl font-bold tracking-tight mb-2">
+            {won && (
+              <motion.div
+                initial={{ scale: 0, rotate: -30 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 200 }}
+              >
+                <Crown size={52} className="text-arena-warn mx-auto mb-5" />
+              </motion.div>
+            )}
+            <div className="font-display text-6xl sm:text-7xl font-bold tracking-tight mb-3 arena-glow-halo inline-block">
               <span className="text-arena-accent">{myScore}</span>
-              <span className="text-arena-muted mx-3">–</span>
+              <span className="text-arena-muted/40 mx-3">–</span>
               <span className="text-arena-bad">{opponentScore}</span>
             </div>
-            <p className="text-arena-muted mb-8">
+            <p className="text-arena-muted mb-10 leading-relaxed">
               {won
                 ? "You dominated the buzzer. Excellent reactions."
                 : tied
@@ -611,7 +691,7 @@ export default function MultiplayerPage() {
                   : "Close game. The buzzer waits for no one."}
             </p>
             <div className="flex gap-3 justify-center flex-wrap">
-              <button
+              <motion.button
                 className="arena-btn arena-btn-primary"
                 onClick={() => {
                   setStatus("idle");
@@ -623,10 +703,12 @@ export default function MultiplayerPage() {
                   setRoomCode("");
                   audio.click();
                 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
               >
                 <Swords size={16} />
                 New Game
-              </button>
+              </motion.button>
               <Link href="/" className="arena-btn arena-btn-ghost">
                 Home
               </Link>

@@ -23,13 +23,27 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <head>
         <link
-          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
       </head>
       <body className="antialiased">
         <div className="min-h-screen relative overflow-hidden">
+          {/* Animated Background Mesh */}
+          <div className="arena-bg-mesh">
+            <div className="arena-orb arena-orb--1" />
+            <div className="arena-orb arena-orb--2" />
+            <div className="arena-orb arena-orb--3" />
+            <div className="arena-orb arena-orb--4" />
+          </div>
+
+          {/* Subtle Grid Overlay */}
+          <div className="arena-grid-bg" />
+
+          {/* Noise */}
           <div className="noise" />
+
+          {/* Header & Content */}
           <ArenaHeader />
           {children}
         </div>

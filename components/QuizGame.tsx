@@ -2,13 +2,45 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronRight, Clock3, X, Volume2 } from "lucide-react";
+import { Check, ChevronRight, X, Volume2, Flame } from "lucide-react";
 import { useQuizStore } from "@/lib/store";
 import { audio } from "@/lib/audio";
 import { getTimeLimit } from "@/lib/scoring";
 import ResultsScreen from "@/components/ResultsScreen";
 
 const letters = ["A", "B", "C", "D"] as const;
+
+function TimerRing({ time, total, urgent }: { time: number; total: number; urgent: boolean }) {
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const progress = total > 0 ? time / total : 0;
+  const dashOffset = circumference * (1 - progress);
+
+  return (
+    <div className="arena-timer-ring" data-urgent={urgent ? "true" : undefined}>
+      <svg viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="timer-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={urgent ? "#ff4d6a" : "#00d4ff"} />
+            <stop offset="100%" stopColor={urgent ? "#ff8a3d" : "#a855f7"} />
+          </linearGradient>
+        </defs>
+        <circle className="ring-bg" cx="50" cy="50" r={radius} />
+        <circle
+          className="ring-fg"
+          cx="50"
+          cy="50"
+          r={radius}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="timer-value">
+        <span className={urgent ? "text-arena-bad" : ""}>{time}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function QuizGame({ onExit }: { onExit?: () => void }) {
   const {
@@ -96,6 +128,37 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
     }
   }, [isLast, next]);
 
+  // Keyboard navigation (Keys 1-4, A-D for options; Enter/Space for next)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (!locked) {
+        if (e.key === "1" || e.key === "a" || e.key === "A") {
+          e.preventDefault();
+          handleAnswer(0);
+        } else if (e.key === "2" || e.key === "b" || e.key === "B") {
+          e.preventDefault();
+          handleAnswer(1);
+        } else if (e.key === "3" || e.key === "c" || e.key === "C") {
+          e.preventDefault();
+          handleAnswer(2);
+        } else if (e.key === "4" || e.key === "d" || e.key === "D") {
+          e.preventDefault();
+          handleAnswer(3);
+        }
+      } else {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleNext();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [locked, handleAnswer, handleNext]);
+
   if (finished) {
     return <ResultsScreen onPlayAgain={onExit} />;
   }
@@ -107,20 +170,38 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
       {/* Top Bar */}
       <div className="flex justify-between items-center py-5">
         <div>
-          <div className="arena-eyebrow">
+          <motion.div
+            className="arena-eyebrow"
+            key={index}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3 }}
+          >
             Question {index + 1} / {questions.length}
-          </div>
-          <div className="flex gap-3 mt-2">
-            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold">
-              Score <span className="text-arena-accent">{score}</span>
+          </motion.div>
+          <div className="flex gap-2.5 mt-2.5">
+            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
+              Score <span className="text-arena-accent font-display">{score}</span>
             </div>
-            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold">
-              Streak{" "}
-              <span className={streak >= 3 ? "text-arena-warn" : "text-arena-accent"}>
-                {streak}×
-              </span>
+            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
+              {streak >= 3 ? (
+                <motion.span
+                  className="text-arena-warn flex items-center gap-1"
+                  key={streak}
+                  initial={{ scale: 1.3 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 300 }}
+                >
+                  <Flame size={14} />
+                  {streak}×
+                </motion.span>
+              ) : (
+                <span>
+                  Streak <span className="text-arena-accent">{streak}×</span>
+                </span>
+              )}
             </div>
-            <div className="hidden sm:block px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold">
+            <div className="hidden sm:block px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
               <span className="text-arena-good">{correct}</span>
               {" / "}
               <span className="text-arena-bad">{wrong}</span>
@@ -128,18 +209,8 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
           </div>
         </div>
 
-        {/* Timer */}
-        <div
-          className="arena-timer"
-          data-urgent={time <= 5 ? "true" : undefined}
-          role="timer"
-          aria-label={`${time} seconds remaining`}
-        >
-          <div className="flex flex-col items-center">
-            <Clock3 size={14} className="mb-0.5 opacity-50" />
-            <span>{time}</span>
-          </div>
-        </div>
+        {/* SVG Timer Ring */}
+        <TimerRing time={time} total={timeLimit} urgent={time <= 5} />
       </div>
 
       {/* Progress */}
@@ -152,10 +223,10 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
         <motion.div
           key={q.id}
           className="arena-question-card mt-5"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
+          initial={{ opacity: 0, y: 20, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -16, scale: 0.98 }}
+          transition={{ duration: 0.3, ease: [0.2, 0.9, 0.3, 1] }}
         >
           {/* Meta pills */}
           <div className="flex gap-2 items-center flex-wrap">
@@ -165,7 +236,7 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
           </div>
 
           {/* Question text */}
-          <h2 className="font-display text-[clamp(24px,4vw,42px)] leading-[1.1] tracking-tight max-w-[920px] my-6">
+          <h2 className="font-display text-[clamp(22px,4vw,40px)] leading-[1.1] tracking-tight max-w-[920px] my-6 font-bold">
             {q.question}
           </h2>
 
@@ -183,20 +254,35 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
               return (
                 <motion.button
                   key={`${q.id}-${i}`}
-                  whileTap={!locked ? { scale: 0.985 } : undefined}
+                  whileTap={!locked ? { scale: 0.98 } : undefined}
                   className="arena-answer"
                   data-state={state || undefined}
                   onClick={() => handleAnswer(i)}
                   disabled={locked}
                   aria-label={`Option ${letters[i]}: ${option}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.04 * i + 0.1, duration: 0.3 }}
                 >
                   <span className="arena-answer-key">{letters[i]}</span>
                   <span className="flex-1 text-[15px]">{option}</span>
                   {locked && i === q.answer && (
-                    <Check size={18} className="text-arena-good flex-shrink-0" />
+                    <motion.span
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 400 }}
+                    >
+                      <Check size={18} className="text-arena-good flex-shrink-0" />
+                    </motion.span>
                   )}
                   {locked && i === selected && i !== q.answer && (
-                    <X size={18} className="text-arena-bad flex-shrink-0" />
+                    <motion.span
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 400 }}
+                    >
+                      <X size={18} className="text-arena-bad flex-shrink-0" />
+                    </motion.span>
                   )}
                 </motion.button>
               );
@@ -207,9 +293,9 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
           {locked && (
             <motion.div
               className="arena-explanation"
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.25 }}
             >
               <b className={isCorrect ? "text-arena-good" : "text-arena-bad"}>
                 {isCorrect
@@ -224,20 +310,23 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
 
           {/* Footer */}
           <div className="flex justify-between items-center mt-5 gap-3 flex-wrap">
-            <div className="text-xs text-arena-muted flex items-center gap-1">
-              <Volume2 size={13} />
+            <div className="text-xs text-arena-muted/50 flex items-center gap-1.5">
+              <Volume2 size={12} />
               Sound cues active
             </div>
             {locked && (
               <motion.button
                 className="arena-btn arena-btn-primary"
                 onClick={handleNext}
-                initial={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
                 {isLast ? "See results" : "Next question"}
+                <span className="hidden sm:inline-block ml-1 px-1.5 py-0.5 rounded text-[10px] tracking-wide bg-black/20 text-white/70 font-mono">
+                  Enter ↵
+                </span>
                 <ChevronRight size={17} />
               </motion.button>
             )}

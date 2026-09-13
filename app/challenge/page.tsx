@@ -13,6 +13,7 @@ import {
   FileText,
   CheckCircle2,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuizStore } from "@/lib/store";
@@ -119,16 +120,16 @@ export default function ChallengePage() {
         </Link>
 
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.4, ease: [0.2, 0.9, 0.3, 1] }}
         >
           <div className="arena-eyebrow mt-8">Challenge Mode</div>
-          <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2">
+          <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2 font-bold">
             Bring 10.<br />
-            <span className="text-arena-accent2">Dare someone.</span>
+            <span className="arena-gradient-text">Dare someone.</span>
           </h1>
-          <p className="text-arena-muted max-w-[700px] mt-3">
+          <p className="text-arena-muted max-w-[700px] mt-3 leading-relaxed">
             Import exactly 10 questions via JSON or CSV. Validate, preview, then play or share as a challenge.
           </p>
         </motion.div>
@@ -138,35 +139,37 @@ export default function ChallengePage() {
         {/* Import Panel */}
         <motion.div
           className="arena-card"
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
+          transition={{ delay: 0.05, duration: 0.4 }}
         >
           <div className="arena-eyebrow">Import</div>
-          <h3 className="font-display font-bold tracking-tight mt-1 mb-4">
+          <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
             Paste your question set
           </h3>
 
           {/* Import Mode Toggle */}
           <div className="flex gap-2 mb-4">
-            <button
+            <motion.button
               className={`arena-btn text-sm ${importMode === "json" ? "arena-btn-primary" : "arena-btn-ghost"}`}
               onClick={() => setImportMode("json")}
+              whileTap={{ scale: 0.96 }}
             >
               <FileJson size={15} />
               JSON
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               className={`arena-btn text-sm ${importMode === "csv" ? "arena-btn-primary" : "arena-btn-ghost"}`}
               onClick={() => setImportMode("csv")}
+              whileTap={{ scale: 0.96 }}
             >
               <FileText size={15} />
               CSV
-            </button>
+            </motion.button>
           </div>
 
           <textarea
-            className="arena-textarea text-sm font-mono"
+            className="arena-textarea text-sm"
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={
@@ -178,21 +181,23 @@ export default function ChallengePage() {
           />
 
           <div className="flex gap-2 mt-3 flex-wrap">
-            <button
+            <motion.button
               className="arena-btn arena-btn-ghost text-sm"
               onClick={() => { setText(""); setQuestions([]); setErrors([]); }}
+              whileTap={{ scale: 0.95 }}
             >
               <Trash2 size={15} />
               Clear
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               className="arena-btn text-sm"
               onClick={parseInput}
               disabled={text.trim().length === 0}
+              whileTap={{ scale: 0.95 }}
             >
               <FileUp size={15} />
               Validate Set
-            </button>
+            </motion.button>
           </div>
 
           {/* Errors */}
@@ -222,13 +227,13 @@ export default function ChallengePage() {
         {/* Preview Panel */}
         <motion.div
           className="arena-card"
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
         >
           <div className="arena-eyebrow">Preview</div>
-          <h3 className="font-display font-bold tracking-tight mt-1 mb-2">
-            {questions.length}/10 loaded
+          <h3 className="font-display font-bold tracking-tight mt-1 mb-2 text-lg">
+            <span className="text-arena-accent">{questions.length}</span>/10 loaded
           </h3>
           <p className="text-sm text-arena-muted mb-4">
             A challenge is fixed at 10 questions. Same scoring, timer, and feedback engine.
@@ -237,44 +242,53 @@ export default function ChallengePage() {
           {questions.length > 0 && (
             <div className="grid gap-1.5 mb-4 max-h-[300px] overflow-y-auto pr-1">
               {questions.map((q, i) => (
-                <div
+                <motion.div
                   key={q.id}
-                  className="flex items-center justify-between arena-pill text-xs"
+                  className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-arena-line bg-white/[.02] text-xs"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.03 * i, duration: 0.3 }}
                 >
-                  <span className="truncate max-w-[200px]">
-                    {i + 1}. {q.question.slice(0, 60)}
+                  <span className="truncate max-w-[220px] font-medium">
+                    <span className="text-arena-accent mr-1.5">{i + 1}.</span>
+                    {q.question.slice(0, 60)}
                     {q.question.length > 60 ? "…" : ""}
                   </span>
-                  <span className="flex-shrink-0 ml-2">{q.difficulty}</span>
-                </div>
+                  <span className="flex-shrink-0 ml-2 arena-pill text-[10px]">{q.difficulty}</span>
+                </motion.div>
               ))}
             </div>
           )}
 
           {questions.length === 0 && (
-            <div className="py-8 text-center text-arena-muted text-sm">
+            <div className="py-10 text-center text-arena-muted text-sm border border-dashed border-arena-line rounded-xl">
               Import questions to see a preview here.
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
-            <button
+          <div className="flex flex-col gap-2 mt-4">
+            <motion.button
               className="arena-btn arena-btn-primary w-full justify-center"
               disabled={questions.length !== 10}
               onClick={startChallenge}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.97 }}
             >
               <Play size={17} />
               Start Challenge
-            </button>
+            </motion.button>
 
             {questions.length === 10 && (
-              <button
+              <motion.button
                 className="arena-btn arena-btn-ghost w-full justify-center"
                 onClick={generateCode}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileTap={{ scale: 0.97 }}
               >
                 <Share2 size={16} />
                 Generate Share Code
-              </button>
+              </motion.button>
             )}
           </div>
         </motion.div>
@@ -290,33 +304,49 @@ export default function ChallengePage() {
             exit={{ opacity: 0 }}
           >
             <div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
               onClick={() => setShowShareModal(false)}
             />
             <motion.div
               className="arena-card relative z-10 w-full max-w-md text-center"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.85, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.85, opacity: 0, y: 20 }}
+              transition={{ type: "spring", damping: 20, stiffness: 200 }}
             >
-              <div className="arena-eyebrow mb-3">Challenge Code</div>
-              <div className="font-display text-5xl font-bold tracking-[0.1em] text-arena-accent mb-4">
-                {challengeCode}
+              {/* Close button */}
+              <button
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/[.04] grid place-items-center hover:bg-white/[.08] transition-colors"
+                onClick={() => setShowShareModal(false)}
+              >
+                <X size={14} />
+              </button>
+
+              <div className="arena-eyebrow mb-4 justify-center">Challenge Code</div>
+              <div className="arena-glow-halo inline-block mb-5">
+                <div className="font-display text-5xl font-bold tracking-[0.14em] arena-gradient-text">
+                  {challengeCode}
+                </div>
               </div>
-              <p className="text-sm text-arena-muted mb-5">
-                Share this code with your opponent. They'll need the same question set to play.
+              <p className="text-sm text-arena-muted mb-6 leading-relaxed">
+                Share this code with your opponent. They&apos;ll need the same question set to play.
               </p>
               <div className="flex gap-2 justify-center">
-                <button className="arena-btn" onClick={copyCode}>
+                <motion.button
+                  className="arena-btn arena-btn-primary"
+                  onClick={copyCode}
+                  whileTap={{ scale: 0.95 }}
+                >
                   <Copy size={15} />
                   Copy Code
-                </button>
-                <button
+                </motion.button>
+                <motion.button
                   className="arena-btn arena-btn-ghost"
                   onClick={() => setShowShareModal(false)}
+                  whileTap={{ scale: 0.95 }}
                 >
                   Close
-                </button>
+                </motion.button>
               </div>
             </motion.div>
           </motion.div>
@@ -330,7 +360,7 @@ export default function ChallengePage() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
       >
-        <CheckCircle2 size={14} className="inline mr-1 align-[-2px]" />
+        <CheckCircle2 size={14} className="inline mr-1.5 align-[-2px] text-arena-accent" />
         Import validation enforces: 10 questions, 4 unique options each, valid sport, valid difficulty, no duplicates.
         CSV and JSON both supported. PDF import architecture is ready for a future update.
       </motion.div>
