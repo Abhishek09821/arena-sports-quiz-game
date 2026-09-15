@@ -13,6 +13,8 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
+  KeyRound,
+  AlertCircle,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import { SPORT_LIST, DIFFICULTY_LIST, SPORT_META } from "@/data/questions";
@@ -51,7 +53,7 @@ type Tab = "overview" | "users" | "sessions";
 
 export default function AdminPage() {
   const router = useRouter();
-  const { user, isAdmin, isLoading, token } = useAuth();
+  const { user, isAdmin, isLoading, token, elevateToAdmin } = useAuth();
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -59,13 +61,18 @@ export default function AdminPage() {
   const [isFetching, setIsFetching] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Quick unlock state
+  const [unlockKey, setUnlockKey] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+  const [unlockLoading, setUnlockLoading] = useState(false);
+
   // Authorization check
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
         router.push("/admin/login");
       } else if (!isAdmin) {
-        setFetchError("Unauthorized: You do not possess administrator credentials.");
+        setFetchError("Administrator clearance required for this dashboard.");
         setIsFetching(false);
       }
     }
@@ -114,7 +121,27 @@ export default function AdminPage() {
     }
   }, [isAdmin, token]);
 
-  if (isLoading || (isFetching && !stats)) {
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUnlockError("");
+    setUnlockLoading(true);
+    audio.click();
+
+    const res = await elevateToAdmin(unlockKey.trim());
+    if (res.error) {
+      setUnlockError(res.error);
+      audio.wrong();
+      setUnlockLoading(false);
+    } else {
+      audio.correct();
+      setFetchError(null);
+      setUnlockLoading(false);
+      loadStats();
+      loadUsers();
+    }
+  };
+
+  if (isLoading || (isFetching && !stats && isAdmin)) {
     return (
       <main className="arena-container min-h-[calc(100vh-80px)] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-arena-muted">
@@ -125,18 +152,58 @@ export default function AdminPage() {
     );
   }
 
-  if (fetchError) {
+  if (fetchError || !isAdmin) {
     return (
       <main className="arena-container py-16 max-w-lg mx-auto text-center">
-        <div className="arena-card border-arena-bad/30 p-8 space-y-4">
-          <div className="w-12 h-12 rounded-full bg-arena-bad/10 text-arena-bad grid place-items-center mx-auto">
+        <div className="arena-card border-arena-accent/30 p-8 space-y-4">
+          <div className="w-12 h-12 rounded-full bg-arena-accent/10 text-arena-accent grid place-items-center mx-auto">
             <Shield size={24} />
           </div>
-          <h2 className="font-display text-2xl font-bold text-arena-bad">Access Restricted</h2>
-          <p className="text-sm text-arena-muted">{fetchError}</p>
-          <div className="pt-2 flex justify-center gap-3">
-            <Link href="/admin/login" className="arena-btn arena-btn-primary text-xs">
-              Sign In as Admin
+          <h2 className="font-display text-2xl font-bold text-arena-text">Admin Clearance Required</h2>
+          <p className="text-xs text-arena-muted">
+            {fetchError || "Your currently signed-in account requires administrator privileges to view this portal."}
+          </p>
+
+          {unlockError && (
+            <div className="arena-notice" data-variant="error">
+              <div className="flex items-center gap-1.5 text-arena-bad text-xs font-semibold">
+                <AlertCircle size={14} />
+                <span>{unlockError}</span>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleUnlock} className="space-y-3 pt-2">
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-arena-accent text-left mb-1">
+                Admin Master Passkey (Default: arena-admin-2026)
+              </label>
+              <div className="relative">
+                <KeyRound size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-arena-accent" />
+                <input
+                  type="password"
+                  required
+                  value={unlockKey}
+                  onChange={(e) => setUnlockKey(e.target.value)}
+                  placeholder="arena-admin-2026"
+                  className="arena-input pl-10 text-sm py-2 border-arena-accent/40 focus:border-arena-accent"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={unlockLoading}
+              className="arena-btn arena-btn-primary w-full justify-center text-xs py-2.5"
+            >
+              <KeyRound size={14} />
+              {unlockLoading ? "Verifying..." : "Unlock Admin Dashboard"}
+            </button>
+          </form>
+
+          <div className="pt-2 flex justify-center gap-3 border-t border-arena-line mt-4">
+            <Link href="/admin/login" className="arena-btn arena-btn-ghost text-xs">
+              Switch Admin Account
             </Link>
             <Link href="/" className="arena-btn arena-btn-ghost text-xs">
               Return Home
@@ -261,7 +328,7 @@ export default function AdminPage() {
                       <div className="flex items-center justify-between text-xs font-medium">
                         <span className="flex items-center gap-1.5">
                           <span>{meta.icon}</span>
-                          <span>{s}</span>
+                          <span>{s === "Football" ? "Football (Soccer)" : s}</span>
                         </span>
                         <span className="text-arena-muted">{count} questions</span>
                       </div>

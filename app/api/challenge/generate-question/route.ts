@@ -13,30 +13,43 @@ export async function POST(req: Request) {
     const excludeStems = Array.isArray(body.excludeStems) ? body.excludeStems : [];
     const excludeAnswers = Array.isArray(body.excludeAnswers) ? body.excludeAnswers : [];
 
-    // Generate single question
-    const rawBatch = await generateAIQuestions({
-      sport,
-      difficulty,
-      count: 1,
-      category,
-      excludeStems,
-      excludeAnswers,
-    });
+    // Generate single question with retry loop for resilience
+    let validatedQuestion = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastErrors: string[] = [];
 
-    if (rawBatch.length === 0) {
-      return NextResponse.json({ error: "No question generated" }, { status: 500 });
+    while (!validatedQuestion && attempts < maxAttempts) {
+      attempts++;
+      const rawBatch = await generateAIQuestions({
+        sport,
+        difficulty,
+        count: 1,
+        category,
+        excludeStems,
+        excludeAnswers,
+      });
+
+      for (const raw of rawBatch) {
+        const validation = validateQuestion(raw);
+        if (validation.valid && validation.question) {
+          validatedQuestion = validation.question;
+          break;
+        } else {
+          lastErrors = validation.errors;
+        }
+      }
     }
 
-    const validation = validateQuestion(rawBatch[0]);
-    if (!validation.valid || !validation.question) {
+    if (!validatedQuestion) {
       return NextResponse.json(
-        { error: "Validation failed", details: validation.errors },
+        { error: "Validation failed after retries", details: lastErrors },
         { status: 422 }
       );
     }
 
     // Shuffle options & map answer
-    const randomized = randomizeQuestionOptions(validation.question);
+    const randomized = randomizeQuestionOptions(validatedQuestion);
 
     return NextResponse.json({
       success: true,

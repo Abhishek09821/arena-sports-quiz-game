@@ -33,6 +33,7 @@ export default function SignUpPage() {
     const res = await signUp(email, password, displayName);
     if (res.error) {
       setError(res.error);
+      audio.wrong();
       setLoading(false);
     } else {
       audio.correct();

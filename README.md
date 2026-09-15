@@ -22,8 +22,8 @@ A high-performance, production-ready sports quiz platform covering 1990–2026 a
 ## Features
 
 ### 1. Solo Play Mode (`/play`)
-- Configure round size (5, 10, 15, or 20 questions)
-- Filter by sport (Football, Basketball, Tennis, Formula 1, Cricket, Combat Sports, Golf, American Football, or Mixed)
+- Configure round size (5, 10, 15, 20, or 30 questions)
+- Filter by sport (Cricket, Football [FIFA Soccer], Basketball, Tennis, Formula 1, Badminton, Hockey, Athletics, or All Sports)
 - Filter by difficulty (Easy, Medium, Hard, Legendary, or Mixed)
 - Dynamic countdown timer adapted to question difficulty (30s down to 16s)
 - Speed bonus scoring calculation + exponential streak multiplier capped at +200
@@ -37,18 +37,16 @@ A high-performance, production-ready sports quiz platform covering 1990–2026 a
 - Dynamic performance grade calculation (Legendary, Elite, Veteran, Contender, Rookie)
 
 ### 3. Challenge Mode (`/challenge`)
-- Create custom 10-question private rounds
-- Import via custom JSON or standard CSV
+- Create custom private rounds with AI single-question generator or manual entry
+- Import via custom JSON or standard CSV, export questions to JSON/CSV
 - Download sample templates directly from the UI
 - Strict schema validation checking sport tags, difficulty, 4 choices, valid answers, and duplicates
-- Shareable challenge preview and instant play
+- Shareable challenge preview and instant play with 6-character access codes
 
 ### 4. Admin Management Portal (`/admin`)
-- Complete questions dashboard with metrics by sport and difficulty
-- Search, filter, and review the entire question bank
-- Form-based question creator with real-time validation
-- Bulk JSON and CSV import with duplicate detection and schema validation
-- Fact-checking checklist and production publishing guidelines
+- Complete telemetry dashboard with metrics by sport, difficulty, user accounts, and quiz sessions
+- Role-based security (admin only) enforced server-side via Supabase profiles
+- Live question logs and session inspection
 
 ### 5. Realtime Multiplayer (`/multiplayer`)
 - Room creation and code-based joining (e.g. `ARENA-7291`)
@@ -56,9 +54,9 @@ A high-performance, production-ready sports quiz platform covering 1990–2026 a
 - Synchronized question bank and buzzer/scoring events via Supabase Realtime Channels
 - Graceful offline simulation when Supabase credentials are not configured
 
-### 6. Question Bank (`data/questions.ts`)
-- 88 handcrafted, verified trivia questions spanning 1990 to 2026
-- Balanced across 8 sports: Football (Soccer), Basketball (NBA), Tennis, Formula 1, Cricket, Combat Sports (UFC/Boxing), Golf, and American Football (NFL)
+### 6. Question Bank & AI Synthesis (`lib/services/ai_question_generator.ts`)
+- Dynamically synthesized trivia via multi-provider AI (Google Gemini, Groq, OpenRouter, OpenAI) with resilient offline fallback
+- Balanced across 8 sports: Football (Association Football / FIFA Soccer strictly, NO American Football/NFL), Cricket, Basketball (NBA), Tennis, Formula 1, Badminton, Hockey, and Athletics
 - Every question contains rich metadata: `id`, `sport`, `difficulty`, `year`, `explanation`, and `source`
 
 ---

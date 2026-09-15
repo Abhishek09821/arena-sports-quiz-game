@@ -1,6 +1,7 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
 import ArenaHeader from "@/components/ArenaHeader";
+import AuthModal from "@/components/AuthModal";
 import { AuthProvider } from "@/components/AuthContext";
 
 export const metadata: Metadata = {
@@ -47,6 +48,7 @@ export default function RootLayout({
 
             {/* Header & Content */}
             <ArenaHeader />
+            <AuthModal />
             {children}
           </div>
         </AuthProvider>

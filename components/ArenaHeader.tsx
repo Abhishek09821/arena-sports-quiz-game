@@ -19,7 +19,7 @@ export default function ArenaHeader() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, profile, isAdmin, signOut, isLoading } = useAuth();
+  const { user, profile, isAdmin, signOut, isLoading, openAuthModal, requireAuth } = useAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -65,7 +65,13 @@ export default function ArenaHeader() {
                       ? "text-arena-text arena-nav-active"
                       : "text-arena-muted hover:text-arena-text"
                   }`}
-                  onClick={() => audio.navigate()}
+                  onClick={(e) => {
+                    audio.navigate();
+                    if (!user) {
+                      e.preventDefault();
+                      requireAuth(link.href);
+                    }
+                  }}
                 >
                   {link.label}
                 </Link>
@@ -109,21 +115,27 @@ export default function ArenaHeader() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
-                    <Link
-                      href="/login"
-                      className="arena-btn arena-btn-ghost text-xs px-3 py-1.5"
-                      onClick={() => audio.navigate()}
+                    <button
+                      type="button"
+                      className="arena-btn arena-btn-ghost text-xs px-3 py-1.5 cursor-pointer"
+                      onClick={() => {
+                        audio.click();
+                        openAuthModal("signin");
+                      }}
                     >
                       <LogIn size={13} />
                       Sign In
-                    </Link>
-                    <Link
-                      href="/signup"
-                      className="arena-btn arena-btn-primary text-xs px-3.5 py-1.5 shadow-[0_0_15px_rgba(0,212,255,0.2)]"
-                      onClick={() => audio.navigate()}
+                    </button>
+                    <button
+                      type="button"
+                      className="arena-btn arena-btn-primary text-xs px-3.5 py-1.5 shadow-[0_0_15px_rgba(0,212,255,0.2)] cursor-pointer"
+                      onClick={() => {
+                        audio.click();
+                        openAuthModal("signup");
+                      }}
                     >
                       Sign Up
-                    </Link>
+                    </button>
                   </div>
                 )}
               </>
@@ -176,9 +188,13 @@ export default function ArenaHeader() {
                             ? "text-arena-text bg-white/[.06] border border-arena-accent/20"
                             : "text-arena-muted hover:text-arena-text hover:bg-white/[.03] border border-transparent"
                         }`}
-                        onClick={() => {
+                        onClick={(e) => {
                           audio.navigate();
                           setMobileOpen(false);
+                          if (!user) {
+                            e.preventDefault();
+                            requireAuth(link.href);
+                          }
                         }}
                       >
                         {link.label}
@@ -218,20 +234,26 @@ export default function ArenaHeader() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
-                    <Link
-                      href="/login"
-                      className="arena-btn arena-btn-ghost text-xs justify-center"
-                      onClick={() => setMobileOpen(false)}
+                    <button
+                      type="button"
+                      className="arena-btn arena-btn-ghost text-xs justify-center cursor-pointer"
+                      onClick={() => {
+                        setMobileOpen(false);
+                        openAuthModal("signin");
+                      }}
                     >
                       Sign In
-                    </Link>
-                    <Link
-                      href="/signup"
-                      className="arena-btn arena-btn-primary text-xs justify-center"
-                      onClick={() => setMobileOpen(false)}
+                    </button>
+                    <button
+                      type="button"
+                      className="arena-btn arena-btn-primary text-xs justify-center cursor-pointer"
+                      onClick={() => {
+                        setMobileOpen(false);
+                        openAuthModal("signup");
+                      }}
                     >
                       Sign Up
-                    </Link>
+                    </button>
                   </div>
                 )}
               </div>

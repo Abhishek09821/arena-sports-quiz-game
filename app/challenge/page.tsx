@@ -422,7 +422,9 @@ export default function ChallengePage() {
                     className="arena-input text-sm"
                   >
                     {SPORT_LIST.map((s) => (
-                      <option key={s} value={s} className="bg-arena-panel">{s}</option>
+                      <option key={s} value={s} className="bg-arena-panel">
+                        {s === "Football" ? "Football (Soccer)" : s}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -495,7 +497,9 @@ export default function ChallengePage() {
                     className="arena-input text-sm"
                   >
                     {SPORT_LIST.map((s) => (
-                      <option key={s} value={s} className="bg-arena-panel">{s}</option>
+                      <option key={s} value={s} className="bg-arena-panel">
+                        {s === "Football" ? "Football (Soccer)" : s}
+                      </option>
                     ))}
                   </select>
                 </div>

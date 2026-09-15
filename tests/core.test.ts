@@ -213,31 +213,97 @@ test("rejects invalid sport", () => {
 });
 
 test("rejects American Football / NFL questions under Football sport category", () => {
-  const nflQuestion = {
-    sport: "Football",
-    difficulty: "Medium",
-    question: "Which quarterback has won the most Super Bowl titles in NFL history?",
-    options: ["Tom Brady", "Joe Montana", "Patrick Mahomes", "Peyton Manning"],
-    answer: "Tom Brady",
-    explanation: "Tom Brady won seven Super Bowl titles.",
-  };
-  const res = validateQuestion(nflQuestion);
-  assert(!res.valid, "Must reject NFL question in Football category");
-  assert(res.errors.some((e) => e.includes("American Football / NFL")), "Must flag NFL error message");
+  const nflQuestions = [
+    {
+      sport: "Football",
+      difficulty: "Medium",
+      question: "Which quarterback has won the most Super Bowl titles in NFL history?",
+      options: ["Tom Brady", "Joe Montana", "Patrick Mahomes", "Peyton Manning"],
+      answer: "Tom Brady",
+      explanation: "Tom Brady won seven Super Bowl titles.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Hard",
+      question: "Which team won Super Bowl LVIII in Las Vegas?",
+      options: ["Kansas City Chiefs", "San Francisco 49ers", "Baltimore Ravens", "Detroit Lions"],
+      answer: "Kansas City Chiefs",
+      explanation: "The Kansas City Chiefs defeated the 49ers in overtime.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Easy",
+      question: "How many points is a touchdown worth in American football?",
+      options: ["6", "3", "7", "2"],
+      answer: "6",
+      explanation: "A touchdown is worth 6 points.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Medium",
+      question: "Who holds the record for most career touchdown passes in the NFL?",
+      options: ["Tom Brady", "Drew Brees", "Peyton Manning", "Brett Favre"],
+      answer: "Tom Brady",
+      explanation: "Tom Brady threw 649 regular season touchdown passes.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Hard",
+      question: "Which coach won the first two Super Bowls and had the trophy named after him?",
+      options: ["Vince Lombardi", "Don Shula", "Bill Belichick", "Chuck Noll"],
+      answer: "Vince Lombardi",
+      explanation: "The Lombardi Trophy was named after legendary Packers coach Vince Lombardi.",
+    },
+  ];
+
+  for (const q of nflQuestions) {
+    const res = validateQuestion(q);
+    assert(!res.valid, `Must reject NFL question: ${q.question}`);
+    assert(res.errors.some((e) => e.includes("American Football / NFL")), `Must flag NFL error message for: ${q.question}`);
+  }
 });
 
 test("accepts valid FIFA soccer questions under Football sport category", () => {
-  const soccerQuestion = {
-    sport: "Football",
-    difficulty: "Easy",
-    question: "Which country won the 2022 FIFA World Cup in Qatar?",
-    options: ["Argentina", "France", "Croatia", "Morocco"],
-    answer: "Argentina",
-    explanation: "Argentina defeated France in the final.",
-  };
-  const res = validateQuestion(soccerQuestion);
-  assert(res.valid, "Must accept valid FIFA soccer question");
-  assertEqual(res.question?.correctAnswerText, "Argentina");
+  const soccerQuestions = [
+    {
+      sport: "Football",
+      difficulty: "Easy",
+      question: "Which country won the 2022 FIFA World Cup in Qatar?",
+      options: ["Argentina", "France", "Croatia", "Morocco"],
+      answer: "Argentina",
+      explanation: "Argentina defeated France in the final.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Easy",
+      question: "Who is the all-time leading goalscorer in UEFA Champions League history?",
+      options: ["Cristiano Ronaldo", "Lionel Messi", "Robert Lewandowski", "Karim Benzema"],
+      answer: "Cristiano Ronaldo",
+      explanation: "Cristiano Ronaldo scored 140 goals in the UEFA Champions League.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Easy",
+      question: "Who won a record 8 Men's Ballon d'Or awards during his football career?",
+      options: ["Lionel Messi", "Cristiano Ronaldo", "Michel Platini", "Johan Cruyff"],
+      answer: "Lionel Messi",
+      explanation: "Lionel Messi won his eighth Ballon d'Or in 2023.",
+    },
+    {
+      sport: "Football",
+      difficulty: "Medium",
+      question: "Which club completed the historic European Treble under Pep Guardiola in 2022-23?",
+      options: ["Manchester City", "Real Madrid", "Bayern Munich", "Inter Milan"],
+      answer: "Manchester City",
+      explanation: "Manchester City won the Premier League, FA Cup, and Champions League in 2023.",
+    },
+  ];
+
+  for (const q of soccerQuestions) {
+    const res = validateQuestion(q);
+    assert(res.valid, `Must accept valid FIFA soccer question: ${q.question}`);
+    assertEqual(res.question?.correctAnswerText, q.answer);
+  }
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -338,6 +404,23 @@ test("buildGame returns requested count with randomized options", () => {
   for (const q of game) {
     assertEqual(q.options.length, 4);
     assert(q.answer >= 0 && q.answer <= 3, "Answer index must be between 0 and 3");
+  }
+});
+
+test("buildGame strictly isolates Football and guarantees 100% FIFA soccer without NFL terms", () => {
+  const footballGame = buildGame({ sport: "Football", count: 10 });
+  assertEqual(footballGame.length, 10);
+  for (const q of footballGame) {
+    assertEqual(q.sport, "Football", "Must strictly remain Football");
+    const val = validateQuestion({
+      sport: q.sport,
+      difficulty: q.difficulty,
+      question: q.question,
+      options: q.options,
+      answer: q.options[q.answer],
+      explanation: q.explanation,
+    });
+    assert(val.valid, `Question must pass validation: ${q.question}`);
   }
 });
 

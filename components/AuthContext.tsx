@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -13,6 +13,8 @@ export interface UserProfile {
   total_score: number;
 }
 
+export type AuthModalMode = "signin" | "signup" | "admin";
+
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
@@ -20,19 +22,48 @@ interface AuthContextType {
   token: string | null;
   isAdmin: boolean;
   isLoading: boolean;
+  // Modal controls
+  isAuthModalOpen: boolean;
+  authModalMode: AuthModalMode;
+  authRedirectUrl: string | null;
+  openAuthModal: (mode?: AuthModalMode, redirectUrl?: string) => void;
+  closeAuthModal: () => void;
+  requireAuth: (targetUrl?: string, callback?: () => void) => boolean;
+  // Actions
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
-  signUp: (email: string, password: string, displayName?: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, displayName?: string) => Promise<{ error?: string; code?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  elevateToAdmin: (adminKey: string) => Promise<{ error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const ADMIN_EMAILS = new Set(["abhishek@gmail.com", "akhilbhai605@gmail.com"]);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Global Auth Modal state
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>("signup");
+  const [authRedirectUrl, setAuthRedirectUrl] = useState<string | null>(null);
+
+  const openAuthModal = useCallback((mode: AuthModalMode = "signup", redirectUrl?: string) => {
+    setAuthModalMode(mode);
+    if (redirectUrl) {
+      setAuthRedirectUrl(redirectUrl);
+    }
+    setIsAuthModalOpen(true);
+  }, []);
+
+  const closeAuthModal = useCallback(() => {
+    setIsAuthModalOpen(false);
+    setAuthRedirectUrl(null);
+  }, []);
 
   const fetchProfile = async (currentUser: User) => {
     if (!supabase) return;
@@ -43,26 +74,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq("id", currentUser.id)
         .maybeSingle();
 
+      const isKnownAdminEmail = currentUser.email && ADMIN_EMAILS.has(currentUser.email.toLowerCase());
+
       if (data && !error) {
-        setProfile(data as UserProfile);
+        const resolvedRole = (data.role === "admin" || isKnownAdminEmail) ? "admin" : "user";
+        setProfile({
+          ...data,
+          role: resolvedRole,
+        } as UserProfile);
       } else {
         // Construct fallback profile
         setProfile({
           id: currentUser.id,
           email: currentUser.email || "",
           display_name: currentUser.user_metadata?.display_name || currentUser.email?.split("@")[0] || "Player",
-          role: currentUser.user_metadata?.role === "admin" ? "admin" : "user",
+          role: (currentUser.user_metadata?.role === "admin" || isKnownAdminEmail) ? "admin" : "user",
           total_games_played: 0,
           total_score: 0,
         });
       }
     } catch {
-      // Quietly set fallback
       setProfile({
         id: currentUser.id,
         email: currentUser.email || "",
         display_name: currentUser.email?.split("@")[0] || "Player",
-        role: "user",
+        role: (currentUser.email && ADMIN_EMAILS.has(currentUser.email.toLowerCase())) ? "admin" : "user",
         total_games_played: 0,
         total_score: 0,
       });
@@ -107,7 +143,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     if (!supabase) return { error: "Supabase connection is not available." };
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
     if (error) return { error: error.message };
     if (data.user) {
       await fetchProfile(data.user);
@@ -117,31 +156,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string, displayName?: string) => {
     if (!supabase) return { error: "Supabase connection is not available." };
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          display_name: displayName || email.split("@")[0],
-          role: "user",
-        },
-      },
-    });
 
-    if (error) return { error: error.message };
-
-    // Create profile entry if user was created
-    if (data.user) {
-      await supabase.from("profiles").upsert({
-        id: data.user.id,
-        email: data.user.email,
-        display_name: displayName || email.split("@")[0],
-        role: "user",
+    try {
+      // 1. Create account via server-side API to guarantee email confirmation and bypass rate-limit issues
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          displayName,
+        }),
       });
-      await fetchProfile(data.user);
-    }
 
-    return {};
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        return {
+          error: resData.error || "Failed to create account.",
+          code: resData.code,
+        };
+      }
+
+      // 2. Immediately sign in the user
+      const loginRes = await signIn(email, password);
+      if (loginRes.error) {
+        return { error: loginRes.error };
+      }
+
+      return {};
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Network error during sign up." };
+    }
   };
 
   const signOut = async () => {
@@ -159,8 +204,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const elevateToAdmin = async (adminKey: string) => {
+    if (!user || !user.email) {
+      return { error: "You must be signed in to elevate privileges." };
+    }
+
+    try {
+      const res = await fetch("/api/auth/admin-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: user.email,
+          adminKey,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return { error: data.error || "Invalid Admin Master Passkey." };
+      }
+
+      await refreshProfile();
+      return {};
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Elevation request failed." };
+    }
+  };
+
+  /**
+   * Action gate: Returns true if authenticated, or opens AuthModal and returns false.
+   */
+  const requireAuth = useCallback((targetUrl?: string, callback?: () => void): boolean => {
+    if (user) {
+      if (callback) callback();
+      return true;
+    }
+    openAuthModal("signup", targetUrl);
+    return false;
+  }, [user, openAuthModal]);
+
   const token = session?.access_token || null;
-  const isAdmin = profile?.role === "admin";
+  const isEmailAdmin = Boolean(user?.email && ADMIN_EMAILS.has(user.email.toLowerCase()));
+  const isAdmin = profile?.role === "admin" || user?.user_metadata?.role === "admin" || isEmailAdmin;
 
   return (
     <AuthContext.Provider
@@ -171,10 +256,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         isAdmin,
         isLoading,
+        isAuthModalOpen,
+        authModalMode,
+        authRedirectUrl,
+        openAuthModal,
+        closeAuthModal,
+        requireAuth,
         signIn,
         signUp,
         signOut,
         refreshProfile,
+        elevateToAdmin,
       }}
     >
       {children}

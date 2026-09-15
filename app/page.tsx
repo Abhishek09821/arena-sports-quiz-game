@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { SPORT_LIST, SPORT_META } from "@/data/questions";
 import { audio } from "@/lib/audio";
+import { useAuth } from "@/components/AuthContext";
 
 const modes = [
   {
@@ -75,6 +76,7 @@ function AnimatedSection({ children, className, delay = 0 }: { children: React.R
 }
 
 export default function Home() {
+  const { user, requireAuth } = useAuth();
   const sportsRef = useRef<HTMLDivElement>(null);
   const sportsInView = useInView(sportsRef, { once: true, margin: "-60px" });
 
@@ -135,7 +137,13 @@ export default function Home() {
             <Link
               href="/play"
               className="arena-btn arena-btn-primary text-base px-7 py-4"
-              onClick={() => audio.unlock()}
+              onClick={(e) => {
+                audio.unlock();
+                if (!user) {
+                  e.preventDefault();
+                  requireAuth("/play");
+                }
+              }}
             >
               <Zap size={18} />
               Play Now
@@ -144,7 +152,13 @@ export default function Home() {
             <Link
               href="/sprint"
               className="arena-btn arena-btn-ghost"
-              onClick={() => audio.unlock()}
+              onClick={(e) => {
+                audio.unlock();
+                if (!user) {
+                  e.preventDefault();
+                  requireAuth("/sprint");
+                }
+              }}
             >
               <Timer size={17} />
               60s Sprint
@@ -152,7 +166,13 @@ export default function Home() {
             <Link
               href="/multiplayer"
               className="arena-btn arena-btn-ghost"
-              onClick={() => audio.unlock()}
+              onClick={(e) => {
+                audio.unlock();
+                if (!user) {
+                  e.preventDefault();
+                  requireAuth("/multiplayer");
+                }
+              }}
             >
               <Swords size={17} />
               1v1 Buzzer
@@ -244,7 +264,13 @@ export default function Home() {
                   href={`/play?sport=${encodeURIComponent(sport)}`}
                   className="arena-card arena-card-shine arena-sport-card block group"
                   data-sport={sport}
-                  onClick={() => audio.select()}
+                  onClick={(e) => {
+                    audio.select();
+                    if (!user) {
+                      e.preventDefault();
+                      requireAuth(`/play?sport=${encodeURIComponent(sport)}`);
+                    }
+                  }}
                   style={{ "--sport-color": meta.color } as React.CSSProperties}
                 >
                   <motion.div
@@ -256,10 +282,10 @@ export default function Home() {
                   </motion.div>
                   <div>
                     <h3 className="font-display font-bold tracking-tight text-base">
-                      {sport}
+                      {sport === "Football" ? "Football (Soccer)" : sport}
                     </h3>
                     <div className="text-[11px] text-arena-muted mt-0.5 flex items-center gap-1">
-                      1990–2026
+                      {sport === "Football" ? "FIFA & Clubs" : "1990–2026"}
                       <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-60 transition-opacity" />
                     </div>
                   </div>
@@ -294,7 +320,13 @@ export default function Home() {
               <Link
                 href={mode.href}
                 className="arena-card arena-card-shine block group h-full"
-                onClick={() => audio.select()}
+                onClick={(e) => {
+                  audio.select();
+                  if (!user) {
+                    e.preventDefault();
+                    requireAuth(mode.href);
+                  }
+                }}
               >
                 {/* Accent line */}
                 <div

@@ -7,6 +7,7 @@ import { useQuizStore } from "@/lib/store";
 import { audio } from "@/lib/audio";
 import { buildGame } from "@/lib/quiz";
 import ResultsScreen from "@/components/ResultsScreen";
+import { useAuth } from "@/components/AuthContext";
 
 const letters = ["A", "B", "C", "D"] as const;
 
@@ -61,6 +62,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
     incrementSprintAttempts,
   } = useQuizStore();
 
+  const { user, openAuthModal } = useAuth();
   const [finished, setFinished] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -69,9 +71,13 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   // Initialize sprint with a large pool of questions
   const startSprint = useCallback(() => {
     audio.unlock();
+    if (!user) {
+      openAuthModal("signup", "/sprint");
+      return;
+    }
     // Start 3-2-1 countdown
     setCountdown(3);
-  }, []);
+  }, [user, openAuthModal]);
 
   // Countdown effect
   useEffect(() => {

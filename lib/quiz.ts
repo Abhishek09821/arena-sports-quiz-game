@@ -163,6 +163,12 @@ const SYNC_FALLBACK_POOL: Question[] = [
   { id: "sync-8", sport: "Hockey", difficulty: "Easy", year: 2023, question: "Which country won the 2023 Men's FIH Hockey World Cup?", options: ["Germany", "Belgium", "Netherlands", "Australia"], answer: 0, explanation: "Germany defeated Belgium in the final." },
   { id: "sync-9", sport: "Cricket", difficulty: "Medium", year: 2019, question: "Which team won the 2019 ICC Cricket World Cup final at Lord's?", options: ["England", "New Zealand", "India", "Australia"], answer: 0, explanation: "England won by boundary countback after tied Super Over." },
   { id: "sync-10", sport: "Football", difficulty: "Medium", year: 2004, question: "Which country won the UEFA Euro 2004 in a legendary upset?", options: ["Greece", "Portugal", "Czech Republic", "France"], answer: 0, explanation: "Greece defeated hosts Portugal 1-0 in Lisbon." },
+  { id: "sync-11", sport: "Football", difficulty: "Easy", year: 2023, question: "Who has won the most Ballon d'Or trophies in football history (8)?", options: ["Lionel Messi", "Cristiano Ronaldo", "Michel Platini", "Johan Cruyff"], answer: 0, explanation: "Lionel Messi won his record 8th Ballon d'Or in 2023." },
+  { id: "sync-12", sport: "Football", difficulty: "Easy", year: 2024, question: "Which football club has won the most UEFA Champions League / European Cup titles (15)?", options: ["Real Madrid", "AC Milan", "Bayern Munich", "Liverpool"], answer: 0, explanation: "Real Madrid has won 15 European Cup / Champions League titles." },
+  { id: "sync-13", sport: "Football", difficulty: "Easy", year: 1970, question: "Who is the only footballer to have won three FIFA World Cup titles as a player?", options: ["Pelé", "Garrincha", "Cafu", "Ronaldo Nazário"], answer: 0, explanation: "Pelé won the FIFA World Cup with Brazil in 1958, 1962, and 1970." },
+  { id: "sync-14", sport: "Football", difficulty: "Easy", year: 2004, question: "Which club went an entire 38-match Premier League season undefeated in 2003-04?", options: ["Arsenal", "Manchester United", "Chelsea", "Liverpool"], answer: 0, explanation: "Arsenal's 'Invincibles' went unbeaten throughout the 2003-04 Premier League season." },
+  { id: "sync-15", sport: "Football", difficulty: "Medium", year: 2016, question: "Which nation won the UEFA Euro 2016 championship by defeating host nation France in the final?", options: ["Portugal", "Spain", "Germany", "Italy"], answer: 0, explanation: "Portugal defeated France 1-0 in extra time at the Stade de France." },
+  { id: "sync-16", sport: "Football", difficulty: "Easy", year: 1986, question: "Who scored both the 'Hand of God' goal and the 'Goal of the Century' against England in 1986?", options: ["Diego Maradona", "Pelé", "Mario Kempes", "Jorge Valdano"], answer: 0, explanation: "Diego Maradona scored both legendary goals in the 1986 World Cup quarter-final in Mexico City." },
 ];
 
 /**
@@ -178,7 +184,16 @@ export function buildGame(options: SelectionOptions): Question[] {
   });
 
   if (pool.length < count) {
-    pool = SYNC_FALLBACK_POOL.filter((q) => (!exclude || !exclude.has(q.id)));
+    // Relax difficulty and exclude, but strictly maintain the chosen sport
+    const sportPreserved = SYNC_FALLBACK_POOL.filter((q) => {
+      if (sport && sport !== "All Sports" && q.sport !== sport) return false;
+      return true;
+    });
+    if (sportPreserved.length > 0) {
+      pool = sportPreserved;
+    } else {
+      pool = SYNC_FALLBACK_POOL.filter((q) => (!exclude || !exclude.has(q.id)));
+    }
   }
 
   // Duplicate elements with unique IDs if more items are requested than fallback pool size

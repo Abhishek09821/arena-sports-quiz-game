@@ -18,10 +18,11 @@ function buildPrompt(options: GenerateOptions): string {
 
   const sportInstruction =
     sport === "All Sports"
-      ? `Distribute the ${count} questions evenly across a variety of sports among: Cricket, Football (strictly Association Football / FIFA Soccer, NOT American Football/NFL), Basketball (NBA), Tennis (Grand Slams), Formula 1, Badminton, Hockey (Field Hockey), Athletics.`
+      ? `Distribute the ${count} questions evenly across a variety of sports among: Cricket, Football (strictly Association Football / FIFA Soccer, NOT American Football/NFL), Basketball (NBA), Tennis (Grand Slams), Formula 1, Badminton, Hockey (Field Hockey), Athletics.
+STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, the NFL, Super Bowl, quarterbacks, touchdowns, or gridiron under ANY circumstance.`
       : sport === "Football"
-      ? `All ${count} questions MUST be strictly about ASSOCIATION FOOTBALL / FIFA SOCCER (e.g. FIFA World Cup, UEFA Champions League, Premier League, La Liga, Serie A, Bundesliga, Ballon d'Or, Copa América, UEFA Euros, and world soccer legends like Lionel Messi, Cristiano Ronaldo, Pelé, Diego Maradona, Kylian Mbappé, Zinedine Zidane, Erling Haaland).
-STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, the NFL, the Super Bowl, quarterbacks, touchdowns, gridiron, or American college football. In this platform, 'Football' means FIFA soccer ONLY!`
+      ? `All ${count} questions MUST be strictly and exclusively about ASSOCIATION FOOTBALL / FIFA SOCCER (e.g. FIFA World Cup, UEFA Champions League, Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Ballon d'Or, Copa América, UEFA European Championship, and world soccer legends like Lionel Messi, Cristiano Ronaldo, Pelé, Diego Maradona, Kylian Mbappé, Zinedine Zidane, Erling Haaland, Johan Cruyff, Ronaldinho, Pep Guardiola, Sir Alex Ferguson).
+STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, the NFL, the Super Bowl, quarterbacks, touchdowns, field goals, gridiron, or American college football. In this platform, 'Football' means FIFA Association Football / Soccer ONLY! Any question about NFL or American football is invalid and will be rejected.`
       : `All ${count} questions MUST be about the sport: ${sport}.`;
 
   const diffInstruction =
@@ -39,7 +40,7 @@ STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American 
   return `You are an elite, highly accurate sports trivia engine and tournament archivist.
 Generate exactly ${count} unique, high-quality sports trivia questions based on the following specifications:
 
-- Sport: ${sport}
+- Sport: ${sport === "Football" ? "Football (Association Football / FIFA Soccer - NOT American Football/NFL)" : sport}
 - Difficulty: ${difficulty}
 ${sportInstruction}
 ${diffInstruction}
@@ -48,7 +49,7 @@ ${excludeSection}
 
 CRITICAL QUALITY & ACCURACY RULES:
 1. FACTUAL ACCURACY: Never fabricate player records, tournament scores, winners, or match stats. Use only verified official sports history and records from 1950 to 2026.
-2. FOOTBALL / SOCCER DEFINITION: "Football" strictly means Association Football / FIFA Soccer (World Cup, UEFA Champions League, Premier League, Ballon d'Or, Copa América, Euro Championships, etc.). NEVER generate questions about American Football, NFL, Super Bowl, quarterbacks, or touchdowns under any circumstances.
+2. FOOTBALL / SOCCER DEFINITION: "Football" strictly and universally means Association Football / FIFA Soccer (World Cup, UEFA Champions League, Premier League, La Liga, Serie A, Ballon d'Or, Copa América, Euro Championships, etc.). NEVER generate questions about American Football, NFL, Super Bowl, quarterbacks, or touchdowns under any circumstances.
 3. PLAUSIBLE OPTIONS: Every question must have EXACTLY 4 options. All 4 options must be credible, plausible peers of the same category (e.g., if the answer is a famous footballer, all other 3 options MUST be famous footballers from similar eras; NEVER insert silly or unrelated distractors).
 4. RANDOMIZE ANSWER POSITION: The correct answer must NOT always be option 0 (A). Distribute correct answers across all positions (A, B, C, D).
 5. EXPLANATION: Provide a concise, informative 1-2 sentence explanation citing the tournament, year, or record.
@@ -217,6 +218,12 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
       { q: "Who scored the famous 'Hand of God' goal against England in the 1986 World Cup?", opts: ["Diego Maradona", "Pelé", "Mario Kempes", "Jorge Valdano"], a: "Diego Maradona", exp: "Diego Maradona scored with his hand in the quarter-final in Mexico City.", diff: "Easy", yr: 1986 },
       { q: "Which player holds the record for most assists in a single Premier League season (20)?", opts: ["Thierry Henry & Kevin De Bruyne", "Cesc Fàbregas", "Mesut Özil", "Frank Lampard"], a: "Thierry Henry & Kevin De Bruyne", exp: "Thierry Henry (2002-03) and Kevin De Bruyne (2019-20) both registered 20 assists.", diff: "Hard", yr: 2020 },
       { q: "Which goalkeeper won the Yashin Trophy at the 2023 Ballon d'Or awards?", opts: ["Emiliano Martínez", "Ederson", "Thibaut Courtois", "Yassine Bounou"], a: "Emiliano Martínez", exp: "Emiliano Martínez won the award following his pivotal World Cup campaign for Argentina.", diff: "Medium", yr: 2023 },
+      { q: "Who holds the record for the most Men's Ballon d'Or awards in football history (8)?", opts: ["Lionel Messi", "Cristiano Ronaldo", "Michel Platini", "Johan Cruyff"], a: "Lionel Messi", exp: "Lionel Messi won his record-extending eighth Ballon d'Or in 2023.", diff: "Easy", yr: 2023 },
+      { q: "Which club has won the most UEFA Champions League / European Cup titles?", opts: ["Real Madrid", "AC Milan", "Liverpool", "Bayern Munich"], a: "Real Madrid", exp: "Real Madrid has won 15 European Cup / Champions League titles.", diff: "Easy", yr: 2024 },
+      { q: "Who is the only player to have won three FIFA World Cup tournaments (1958, 1962, 1970)?", opts: ["Pelé", "Garrincha", "Cafu", "Ronaldo Nazário"], a: "Pelé", exp: "Pelé won three World Cups with Brazil, debuting as a 17-year-old in 1958.", diff: "Easy", yr: 1970 },
+      { q: "Which underdog club remarkably won the English Premier League title in 2015-16 at 5000-1 odds?", opts: ["Leicester City", "Blackburn Rovers", "West Ham United", "Southampton"], a: "Leicester City", exp: "Claudio Ranieri managed Leicester City to an extraordinary Premier League triumph.", diff: "Easy", yr: 2016 },
+      { q: "Which national team won three consecutive major international tournaments between 2008 and 2012?", opts: ["Spain", "France", "Germany", "Brazil"], a: "Spain", exp: "Spain won Euro 2008, the 2010 World Cup, and Euro 2012.", diff: "Medium", yr: 2012 },
+      { q: "Who scored the winning goal for Germany in extra time of the 2014 FIFA World Cup final?", opts: ["Mario Götze", "Thomas Müller", "Miroslav Klose", "Toni Kroos"], a: "Mario Götze", exp: "Mario Götze volleyed home in the 113th minute against Argentina in Rio de Janeiro.", diff: "Medium", yr: 2014 },
     ],
     Basketball: [
       { q: "Which NBA player scored 100 points in a single game in March 1962?", opts: ["Wilt Chamberlain", "Bill Russell", "Kareem Abdul-Jabbar", "Elgin Baylor"], a: "Wilt Chamberlain", exp: "Wilt Chamberlain scored 100 points for the Philadelphia Warriors against the Knicks.", diff: "Easy", yr: 1962 },

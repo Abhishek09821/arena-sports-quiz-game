@@ -117,17 +117,43 @@ export function validateQuestion(raw: unknown): ValidationResult {
   // Strict Association Football verification: Reject any American Football / NFL content
   if (resolvedSport === "Football") {
     const nflTerms = [
-      "nfl", "super bowl", "quarterback", "touchdown", "interception",
-      "linebacker", "wide receiver", "tight end", "running back", "gridiron",
-      "afc championship", "nfc championship", "tom brady", "patrick mahomes",
-      "peyton manning", "bill belichick", "aaron rodgers", "nfl draft",
-      "field goal", "kansas city chiefs", "new england patriots",
-      "green bay packers", "dallas cowboys", "pittsburgh steelers",
-      "san francisco 49ers", "american football", "vince lombardi"
+      // Leagues & Organizations
+      "nfl", "super bowl", "superbowl", "afc", "nfc", "pro bowl", "nfl draft",
+      "gridiron", "american football", "heisman", "college football", "ncaa football",
+      "afl", "cfl", "xfl", "usfl", "cfl grey cup", "bcs championship",
+      // Positions
+      "quarterback", "quarterbacks", "linebacker", "linebackers", "wide receiver",
+      "wide receivers", "tight end", "tight ends", "running back", "running backs",
+      "cornerback", "cornerbacks", "safety", "safeties", "offensive tackle",
+      "offensive line", "defensive end", "defensive tackle", "placekicker", "fullback",
+      // Gameplay concepts
+      "touchdown", "touchdowns", "interception", "interceptions", "field goal",
+      "field goals", "pick six", "end zone", "endzone", "line of scrimmage",
+      "first down", "fourth down", "rushing yards", "passing yards",
+      "passing touchdowns", "rushing touchdowns", "hail mary", "punt return",
+      "kickoff return", "two-point conversion", "extra point", "fumble",
+      // All 32 NFL Franchises
+      "kansas city chiefs", "new england patriots", "green bay packers", "dallas cowboys",
+      "pittsburgh steelers", "san francisco 49ers", "philadelphia eagles", "buffalo bills",
+      "miami dolphins", "new york jets", "baltimore ravens", "cincinnati bengals",
+      "cleveland browns", "houston texans", "indianapolis colts", "jacksonville jaguars",
+      "tennessee titans", "denver broncos", "las vegas raiders", "los angeles chargers",
+      "los angeles rams", "seattle seahawks", "arizona cardinals", "new york giants",
+      "washington commanders", "washington redskins", "chicago bears", "detroit lions",
+      "minnesota vikings", "atlanta falcons", "carolina panthers", "new orleans saints",
+      "tampa bay buccaneers",
+      // Prominent NFL players & coaches
+      "tom brady", "patrick mahomes", "peyton manning", "eli manning", "bill belichick",
+      "aaron rodgers", "vince lombardi", "joe montana", "jerry rice", "brett favre",
+      "john elway", "dan marino", "drew brees", "travis kelce", "rob gronkowski",
+      "lamar jackson", "josh allen", "joe burrow", "walter payton", "barry sanders",
+      "lawrence taylor", "reggie white", "don shula", "andy reid", "lombardi trophy",
+      "pro football hall of fame"
     ];
     const combinedContent = `${q.question || ""} ${(q.options || []).join(" ")} ${q.explanation || ""}`.toLowerCase();
     for (const term of nflTerms) {
-      const regex = new RegExp(`\\b${term}\\b`, "i");
+      const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`\\b${escapedTerm}\\b`, "i");
       if (regex.test(combinedContent)) {
         errors.push(`Question rejected: Contains American Football / NFL term '${term}'. Football must strictly be Association Football / FIFA Soccer.`);
         break;

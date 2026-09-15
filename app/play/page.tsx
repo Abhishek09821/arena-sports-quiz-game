@@ -44,7 +44,7 @@ function PlayContent() {
   const qs = params.get("sport");
   const initial = (SPORT_LIST.some((s) => s === qs) ? qs : "All Sports") as Sport | "All Sports";
 
-  const { token, user } = useAuth();
+  const { token, user, openAuthModal } = useAuth();
   const [sport, setSport] = useState<Sport | "All Sports">(initial);
   const [count, setCount] = useState(10);
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
@@ -68,6 +68,13 @@ function PlayContent() {
   const startGame = async () => {
     audio.unlock();
     audio.click();
+
+    // Enforce player sign up / sign in before starting quiz
+    if (!user) {
+      openAuthModal("signup", "/play");
+      return;
+    }
+
     setIsGenerating(true);
     setGenerationError(null);
     setLoadingPhraseIndex(0);

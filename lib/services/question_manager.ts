@@ -194,13 +194,20 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
         active: true,
       }));
 
-      const { data: savedQuestions, error: qError } = await adminClient
+      let savedQuestions = null;
+      const { data: upserted, error: qError } = await adminClient
         .from("questions")
         .upsert(questionsToUpsert, { onConflict: "question_hash" })
         .select("id, question_hash");
 
       if (qError) {
-        console.warn("[Question Manager] Question upsert warning:", qError.message);
+        const { data: inserted } = await adminClient
+          .from("questions")
+          .insert(questionsToUpsert)
+          .select("id, question_hash");
+        savedQuestions = inserted;
+      } else {
+        savedQuestions = upserted;
       }
 
       // Map generated questions to their DB UUIDs if available
