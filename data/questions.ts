@@ -66,11 +66,5 @@ export const q = (
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SEED QUESTION BANK
-   All questions use original wording.
-   All facts are verifiable from official sports records.
+   Questions are now dynamically generated via AI and persisted in Supabase.
    ═══════════════════════════════════════════════════════════════ */
-
-import questionsJson from "./questions.json";
-
-export const QUESTIONS: Question[] = questionsJson as Question[];

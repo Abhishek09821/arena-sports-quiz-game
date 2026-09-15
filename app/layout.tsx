@@ -1,6 +1,7 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
 import ArenaHeader from "@/components/ArenaHeader";
+import { AuthProvider } from "@/components/AuthContext";
 
 export const metadata: Metadata = {
   title: "Arena — Premium Sports Quiz",
@@ -28,25 +29,27 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <div className="min-h-screen relative overflow-hidden">
-          {/* Animated Background Mesh */}
-          <div className="arena-bg-mesh">
-            <div className="arena-orb arena-orb--1" />
-            <div className="arena-orb arena-orb--2" />
-            <div className="arena-orb arena-orb--3" />
-            <div className="arena-orb arena-orb--4" />
+        <AuthProvider>
+          <div className="min-h-screen relative overflow-hidden">
+            {/* Animated Background Mesh */}
+            <div className="arena-bg-mesh">
+              <div className="arena-orb arena-orb--1" />
+              <div className="arena-orb arena-orb--2" />
+              <div className="arena-orb arena-orb--3" />
+              <div className="arena-orb arena-orb--4" />
+            </div>
+
+            {/* Subtle Grid Overlay */}
+            <div className="arena-grid-bg" />
+
+            {/* Noise */}
+            <div className="noise" />
+
+            {/* Header & Content */}
+            <ArenaHeader />
+            {children}
           </div>
-
-          {/* Subtle Grid Overlay */}
-          <div className="arena-grid-bg" />
-
-          {/* Noise */}
-          <div className="noise" />
-
-          {/* Header & Content */}
-          <ArenaHeader />
-          {children}
-        </div>
+        </AuthProvider>
       </body>
     </html>
   );

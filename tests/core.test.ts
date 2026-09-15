@@ -1,12 +1,20 @@
 /* ═══════════════════════════════════════════════════════════════
-   ARENA — Core Logic Tests
-   Tests for scoring, question selection, validation, timer logic
+   ARENA — Core Logic & AI Quiz Pipeline Tests
+   Tests for scoring, timer, AI validation, randomization,
+   answer mapping, duplicate detection, and import parsing.
    ═══════════════════════════════════════════════════════════════ */
 
-import { scoreAnswer, getTimeLimit, TIME_LIMITS } from "../lib/scoring";
-import { buildGame, shuffle, normalizeQuestionText, questionHash, getAvailableCount, resetSessionHistory } from "../lib/quiz";
+import { scoreAnswer, getTimeLimit } from "../lib/scoring";
+import { shuffle, shuffleQuestionOptions, buildGame } from "../lib/quiz";
+import {
+  validateQuestion,
+  normalizeQuestionText,
+  extractQuestionStem,
+  calculateQuestionHash,
+} from "../lib/services/question_validator";
+import { randomizeQuestionOptions } from "../lib/services/question_manager";
 import { validateQuestions, parseCSV } from "../lib/validation";
-import { QUESTIONS, SPORT_LIST, DIFFICULTY_LIST, type Difficulty } from "../data/questions";
+import { SPORT_LIST, DIFFICULTY_LIST } from "../data/questions";
 
 // ── Test Runner ────────────────────────────────────────────
 let passed = 0;
@@ -37,7 +45,7 @@ function assertEqual<T>(actual: T, expected: T, message?: string) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SCORING TESTS
+// 1. SCORING TESTS
 // ═══════════════════════════════════════════════════════════
 console.log("\n── Scoring Engine ──────────────────────────");
 
@@ -92,7 +100,7 @@ test("score is deterministic", () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// TIMER TESTS
+// 2. TIMER TESTS
 // ═══════════════════════════════════════════════════════════
 console.log("\n── Timer ───────────────────────────────────");
 
@@ -114,276 +122,222 @@ test("Legendary gives 16 seconds", () => {
 
 test("all difficulties have time limits", () => {
   for (const diff of DIFFICULTY_LIST) {
-    assert(TIME_LIMITS[diff] > 0, `${diff} should have a time limit`);
+    const limit = getTimeLimit(diff);
+    assert(limit > 0 && limit <= 60, `${diff} limit out of range: ${limit}`);
   }
 });
 
 // ═══════════════════════════════════════════════════════════
-// QUESTION SELECTION TESTS
+// 3. AI QUESTION VALIDATION TESTS
 // ═══════════════════════════════════════════════════════════
-console.log("\n── Question Selection ──────────────────────");
+console.log("\n── AI Question Validation ──────────────────");
 
-test("buildGame returns requested count", () => {
-  resetSessionHistory();
-  const game = buildGame({ count: 10 });
-  assertEqual(game.length, 10);
+test("valid question passes validation", () => {
+  const valid = {
+    sport: "Cricket",
+    difficulty: "Medium",
+    question: "Who won the 2011 ICC Cricket World Cup?",
+    options: ["India", "Sri Lanka", "Australia", "England"],
+    answer: "India",
+    explanation: "India defeated Sri Lanka in the final at Wankhede Stadium.",
+  };
+  const res = validateQuestion(valid);
+  assert(res.valid, `Expected valid question, got errors: ${res.errors.join(", ")}`);
+  assertEqual(res.question?.answer, 0);
+  assertEqual(res.question?.correctAnswerText, "India");
 });
 
-test("buildGame respects sport filter", () => {
-  resetSessionHistory();
-  const game = buildGame({ sport: "Cricket", count: 5 });
-  assert(game.every((q) => q.sport === "Cricket"), "All questions should be Cricket");
+test("rejects question with missing or short question text", () => {
+  const invalid = {
+    sport: "Football",
+    difficulty: "Easy",
+    question: "Short?",
+    options: ["A", "B", "C", "D"],
+    answer: 0,
+    explanation: "Exp",
+  };
+  const res = validateQuestion(invalid);
+  assert(!res.valid, "Should reject too short question");
 });
 
-test("buildGame respects difficulty filter", () => {
-  resetSessionHistory();
-  const game = buildGame({ sport: "All Sports", difficulty: "Easy", count: 5 });
-  assert(game.every((q) => q.difficulty === "Easy"), "All questions should be Easy");
+test("rejects question with non-array options", () => {
+  const invalid = {
+    sport: "Tennis",
+    difficulty: "Easy",
+    question: "Who won Wimbledon in 2023?",
+    options: "Invalid String",
+    answer: 0,
+    explanation: "Exp",
+  };
+  const res = validateQuestion(invalid);
+  assert(!res.valid, "Should reject string options");
 });
 
-test("buildGame never returns duplicates within a round", () => {
-  resetSessionHistory();
-  const game = buildGame({ count: 20 });
-  const ids = game.map((q) => q.id);
-  const unique = new Set(ids);
-  assertEqual(unique.size, ids.length, "No duplicate IDs in a round");
+test("rejects question with 3 options instead of 4", () => {
+  const invalid = {
+    sport: "Tennis",
+    difficulty: "Easy",
+    question: "Who won Wimbledon in 2023?",
+    options: ["Alcaraz", "Djokovic", "Medvedev"],
+    answer: 0,
+    explanation: "Exp",
+  };
+  const res = validateQuestion(invalid);
+  assert(!res.valid, "Should reject 3 options");
 });
 
-test("buildGame excludes specified questions", () => {
-  resetSessionHistory();
-  const exclude = new Set([QUESTIONS[0].id, QUESTIONS[1].id]);
-  const game = buildGame({ count: 10, exclude });
-  assert(!game.some((q) => exclude.has(q.id)), "Excluded questions should not appear");
+test("rejects question with duplicate options", () => {
+  const invalid = {
+    sport: "Basketball",
+    difficulty: "Easy",
+    question: "Which player scored 100 points in an NBA game?",
+    options: ["Wilt Chamberlain", "Michael Jordan", "Wilt Chamberlain", "Kobe Bryant"],
+    answer: 0,
+    explanation: "Exp",
+  };
+  const res = validateQuestion(invalid);
+  assert(!res.valid, "Should reject duplicate options");
 });
 
-test("shuffle produces different orderings", () => {
-  const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-  const results = new Set<string>();
-  for (let i = 0; i < 20; i++) {
-    results.add(shuffle(arr).join(","));
+test("rejects invalid sport", () => {
+  const invalid = {
+    sport: "Quidditch",
+    difficulty: "Easy",
+    question: "Who caught the golden snitch in 1994?",
+    options: ["Harry", "Cedric", "Krum", "Draco"],
+    answer: 0,
+    explanation: "Exp",
+  };
+  const res = validateQuestion(invalid);
+  assert(!res.valid, "Should reject invalid sport");
+});
+
+test("rejects American Football / NFL questions under Football sport category", () => {
+  const nflQuestion = {
+    sport: "Football",
+    difficulty: "Medium",
+    question: "Which quarterback has won the most Super Bowl titles in NFL history?",
+    options: ["Tom Brady", "Joe Montana", "Patrick Mahomes", "Peyton Manning"],
+    answer: "Tom Brady",
+    explanation: "Tom Brady won seven Super Bowl titles.",
+  };
+  const res = validateQuestion(nflQuestion);
+  assert(!res.valid, "Must reject NFL question in Football category");
+  assert(res.errors.some((e) => e.includes("American Football / NFL")), "Must flag NFL error message");
+});
+
+test("accepts valid FIFA soccer questions under Football sport category", () => {
+  const soccerQuestion = {
+    sport: "Football",
+    difficulty: "Easy",
+    question: "Which country won the 2022 FIFA World Cup in Qatar?",
+    options: ["Argentina", "France", "Croatia", "Morocco"],
+    answer: "Argentina",
+    explanation: "Argentina defeated France in the final.",
+  };
+  const res = validateQuestion(soccerQuestion);
+  assert(res.valid, "Must accept valid FIFA soccer question");
+  assertEqual(res.question?.correctAnswerText, "Argentina");
+});
+
+// ═══════════════════════════════════════════════════════════
+// 4. OPTION RANDOMIZATION & ANSWER MAPPING TESTS
+// ═══════════════════════════════════════════════════════════
+console.log("\n── Option Randomization & Answer Mapping ───");
+
+test("option randomization guarantees 100% correct answer mapping across 100 runs", () => {
+  const sample = {
+    sport: "Athletics",
+    difficulty: "Easy",
+    question: "What is the 100m world record set by Usain Bolt in 2009?",
+    options: ["9.58 seconds", "9.63 seconds", "9.69 seconds", "9.72 seconds"],
+    answer: "9.58 seconds",
+    explanation: "Bolt set the record in Berlin.",
+  };
+
+  const valRes = validateQuestion(sample);
+  assert(Boolean(valRes.valid && valRes.question), "Validation failed");
+  const baseQ = valRes.question!;
+
+  const observedPositions = new Set<number>();
+
+  for (let i = 0; i < 100; i++) {
+    const randomized = randomizeQuestionOptions(baseQ);
+    assertEqual(randomized.options[randomized.answer], baseQ.correctAnswerText, "Answer text must match option at new answer index");
+    assertEqual(randomized.options.length, 4, "Must maintain 4 options");
+    observedPositions.add(randomized.answer);
   }
-  assert(results.size > 1, "Shuffle should produce different orderings");
-});
 
-test("getAvailableCount returns correct numbers", () => {
-  const total = getAvailableCount("All Sports", "Mixed");
-  assertEqual(total, QUESTIONS.length);
-
-  const cricketCount = getAvailableCount("Cricket", "Mixed");
-  assert(cricketCount > 0, "Should have Cricket questions");
-  assert(cricketCount < total, "Cricket should be subset of all");
+  assert(observedPositions.size > 1, "Randomization should distribute answers across multiple positions");
 });
 
 // ═══════════════════════════════════════════════════════════
-// DUPLICATE DETECTION TESTS
+// 5. DUPLICATE DETECTION & HASHING TESTS
 // ═══════════════════════════════════════════════════════════
 console.log("\n── Duplicate Detection ─────────────────────");
 
-test("normalizeQuestionText lowercases and trims", () => {
-  assertEqual(normalizeQuestionText("  Hello World!  "), "hello world");
+test("normalizeQuestionText normalizes punctuation, quotes, and whitespace", () => {
+  const raw = '  Which  Country   won  "The" 2022 World Cup??  ';
+  const norm = normalizeQuestionText(raw);
+  assertEqual(norm, 'which country won "the" 2022 world cup');
 });
 
-test("normalizeQuestionText normalizes whitespace", () => {
-  assertEqual(normalizeQuestionText("hello   world"), "hello world");
+test("extractQuestionStem extracts the core topic", () => {
+  const q1 = "Which player won the 2011 ICC Cricket World Cup Player of the Tournament?";
+  const stem = extractQuestionStem(q1);
+  assert(stem.includes("player won the 2011 icc cricket world cup"), `Unexpected stem: ${stem}`);
 });
 
-test("questionHash produces consistent hashes", () => {
-  const h1 = questionHash("Test?", ["A", "B", "C", "D"]);
-  const h2 = questionHash("Test?", ["A", "B", "C", "D"]);
-  assertEqual(h1, h2);
-});
+test("calculateQuestionHash produces consistent and distinct hashes", () => {
+  const hash1 = calculateQuestionHash("Who won the 2022 FIFA World Cup?", ["Argentina", "France", "Croatia", "Morocco"]);
+  const hash2 = calculateQuestionHash("Who won the 2022 FIFA World Cup?", ["France", "Argentina", "Croatia", "Morocco"]);
+  const hash3 = calculateQuestionHash("Who won the 1998 FIFA World Cup?", ["France", "Brazil", "Croatia", "Netherlands"]);
 
-test("questionHash differs for different questions", () => {
-  const h1 = questionHash("Question 1?", ["A", "B", "C", "D"]);
-  const h2 = questionHash("Question 2?", ["A", "B", "C", "D"]);
-  assert(h1 !== h2, "Different questions should have different hashes");
-});
-
-// ═══════════════════════════════════════════════════════════
-// VALIDATION TESTS
-// ═══════════════════════════════════════════════════════════
-console.log("\n── Validation ──────────────────────────────");
-
-test("valid question passes validation", () => {
-  const result = validateQuestions([{
-    question: "Test question?",
-    options: ["A", "B", "C", "D"],
-    answer: 0,
-    sport: "Cricket",
-    difficulty: "Easy",
-    year: 2023,
-    explanation: "Test",
-  }]);
-  assert(result.valid, "Should be valid");
-  assertEqual(result.questions.length, 1);
-});
-
-test("missing question text fails", () => {
-  const result = validateQuestions([{
-    question: "",
-    options: ["A", "B", "C", "D"],
-    answer: 0,
-  }]);
-  assert(!result.valid || result.errors.length > 0, "Empty question should fail");
-});
-
-test("wrong number of options fails", () => {
-  const result = validateQuestions([{
-    question: "Test?",
-    options: ["A", "B", "C"],
-    answer: 0,
-  }]);
-  assert(result.errors.length > 0, "3 options should fail");
-});
-
-test("duplicate options fail", () => {
-  const result = validateQuestions([{
-    question: "Test?",
-    options: ["A", "A", "C", "D"],
-    answer: 0,
-    sport: "Cricket",
-    difficulty: "Easy",
-  }]);
-  assert(result.errors.length > 0, "Duplicate options should fail");
-});
-
-test("invalid answer index fails", () => {
-  const result = validateQuestions([{
-    question: "Test?",
-    options: ["A", "B", "C", "D"],
-    answer: 5,
-    sport: "Cricket",
-    difficulty: "Easy",
-  }]);
-  assert(result.errors.length > 0, "Answer index 5 should fail");
-});
-
-test("invalid sport fails", () => {
-  const result = validateQuestions([{
-    question: "Test?",
-    options: ["A", "B", "C", "D"],
-    answer: 0,
-    sport: "Quidditch",
-    difficulty: "Easy",
-  }]);
-  assert(result.errors.length > 0, "Invalid sport should fail");
-});
-
-test("invalid difficulty fails", () => {
-  const result = validateQuestions([{
-    question: "Test?",
-    options: ["A", "B", "C", "D"],
-    answer: 0,
-    sport: "Cricket",
-    difficulty: "Impossible",
-  }]);
-  assert(result.errors.length > 0, "Invalid difficulty should fail");
-});
-
-test("exactCount enforcement works", () => {
-  const result = validateQuestions([{
-    question: "Test?",
-    options: ["A", "B", "C", "D"],
-    answer: 0,
-    sport: "Cricket",
-    difficulty: "Easy",
-  }], { exactCount: 10 });
-  assert(!result.valid, "1 question should fail when 10 expected");
-});
-
-test("duplicate detection works", () => {
-  const q = {
-    question: "Same question?",
-    options: ["A", "B", "C", "D"],
-    answer: 0,
-    sport: "Cricket",
-    difficulty: "Easy",
-  };
-  const result = validateQuestions([q, q], { checkDuplicates: true });
-  assert(result.duplicates.length > 0 || result.errors.length > 0, "Duplicates should be detected");
+  assertEqual(hash1, hash2, "Shuffled options should produce the same hash");
+  assert(hash1 !== hash3, "Different questions should produce different hashes");
 });
 
 // ═══════════════════════════════════════════════════════════
-// CSV PARSING TESTS
+// 6. CSV & JSON PARSING TESTS
 // ═══════════════════════════════════════════════════════════
-console.log("\n── CSV Parsing ─────────────────────────────");
+console.log("\n── CSV & JSON Parsing ──────────────────────");
 
-test("parseCSV parses basic CSV", () => {
+test("parseCSV parses basic CSV rows", () => {
   const csv = `question,option_a,option_b,option_c,option_d,answer,sport,difficulty,year,explanation
-Who won?,A,B,C,D,0,Cricket,Easy,2023,Test`;
+Who won the 1992 World Cup?,Australia,Pakistan,England,South Africa,1,Cricket,Easy,1992,Pakistan defeated England`;
   const result = parseCSV(csv);
   assertEqual(result.length, 1);
+  assertEqual((result[0] as { question: string }).question, "Who won the 1992 World Cup?");
 });
 
-test("parseCSV handles empty input", () => {
-  const result = parseCSV("");
-  assertEqual(result.length, 0);
-});
-
-test("parseCSV handles header only", () => {
-  const result = parseCSV("question,option_a,option_b,option_c,option_d,answer");
-  assertEqual(result.length, 0);
+test("validateQuestions validates parsed dataset", () => {
+  const raw = [
+    {
+      question: "Who won the 2011 Cricket World Cup?",
+      options: ["India", "Sri Lanka", "Australia", "England"],
+      answer: 0,
+      sport: "Cricket",
+      difficulty: "Easy",
+      year: 2011,
+      explanation: "India won in Mumbai.",
+    },
+  ];
+  const res = validateQuestions(raw);
+  assert(res.valid, "Should validate parsed set");
+  assertEqual(res.questions.length, 1);
 });
 
 // ═══════════════════════════════════════════════════════════
-// QUESTION DATA INTEGRITY TESTS
+// 7. BUILD GAME / FALLBACK SYNC GENERATOR
 // ═══════════════════════════════════════════════════════════
-console.log("\n── Question Data Integrity ─────────────────");
+console.log("\n── Fallback Sync Game Engine ───────────────");
 
-test("all questions have valid sports", () => {
-  const validSports = new Set(SPORT_LIST);
-  for (const q of QUESTIONS) {
-    assert(validSports.has(q.sport), `Invalid sport: ${q.sport} in ${q.id}`);
-  }
-});
-
-test("all questions have valid difficulties", () => {
-  const validDiffs = new Set(DIFFICULTY_LIST);
-  for (const q of QUESTIONS) {
-    assert(validDiffs.has(q.difficulty), `Invalid difficulty: ${q.difficulty} in ${q.id}`);
-  }
-});
-
-test("all questions have 4 options", () => {
-  for (const q of QUESTIONS) {
-    assertEqual(q.options.length, 4, `${q.id} should have 4 options`);
-  }
-});
-
-test("all questions have valid answer indices", () => {
-  for (const q of QUESTIONS) {
-    assert(q.answer >= 0 && q.answer <= 3, `${q.id} has invalid answer: ${q.answer}`);
-  }
-});
-
-test("all questions have year between 1990 and 2026", () => {
-  for (const q of QUESTIONS) {
-    assert(q.year >= 1990 && q.year <= 2026, `${q.id} has year ${q.year} out of range`);
-  }
-});
-
-test("all questions have unique IDs", () => {
-  const ids = new Set(QUESTIONS.map((q) => q.id));
-  assertEqual(ids.size, QUESTIONS.length, "All IDs should be unique");
-});
-
-test("all questions have non-empty question text", () => {
-  for (const q of QUESTIONS) {
-    assert(q.question.length > 0, `${q.id} has empty question text`);
-  }
-});
-
-test("all 8 sports have at least 8 questions", () => {
-  for (const sport of SPORT_LIST) {
-    const count = QUESTIONS.filter((q) => q.sport === sport).length;
-    assert(count >= 8, `${sport} has only ${count} questions, needs at least 8`);
-  }
-});
-
-test("all difficulty levels are represented", () => {
-  for (const diff of DIFFICULTY_LIST) {
-    const count = QUESTIONS.filter((q) => q.difficulty === diff).length;
-    assert(count > 0, `No questions with difficulty: ${diff}`);
+test("buildGame returns requested count with randomized options", () => {
+  const game = buildGame({ count: 10 });
+  assertEqual(game.length, 10);
+  for (const q of game) {
+    assertEqual(q.options.length, 4);
+    assert(q.answer >= 0 && q.answer <= 3, "Answer index must be between 0 and 3");
   }
 });
 

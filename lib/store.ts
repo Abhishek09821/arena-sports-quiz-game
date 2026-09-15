@@ -20,6 +20,7 @@ export interface AnswerRecord {
 
 interface GameState {
   // ── Game Configuration ─────────────────────────────────
+  sessionId: string | null;
   questions: Question[];
   mode: GameMode;
   sport: Sport | "All Sports";
@@ -50,6 +51,7 @@ interface GameState {
       sport: Sport | "All Sports";
       difficulty: Difficulty | "Mixed";
       mode: GameMode;
+      sessionId?: string;
     }
   ) => void;
   choose: (option: number, secondsLeft: number) => boolean;
@@ -57,10 +59,12 @@ interface GameState {
   reset: () => void;
   setSprintTime: (t: number) => void;
   incrementSprintAttempts: () => void;
+  setSessionId: (id: string) => void;
 }
 
 export const useQuizStore = create<GameState>((set, get) => ({
   // Initial state
+  sessionId: null,
   questions: [],
   mode: "classic",
   sport: "All Sports",
@@ -83,6 +87,7 @@ export const useQuizStore = create<GameState>((set, get) => ({
   start: (questions, options) =>
     set({
       questions,
+      sessionId: options.sessionId || null,
       index: 0,
       score: 0,
       streak: 0,
@@ -141,6 +146,7 @@ export const useQuizStore = create<GameState>((set, get) => ({
 
   reset: () =>
     set({
+      sessionId: null,
       questions: [],
       index: 0,
       score: 0,
@@ -162,4 +168,6 @@ export const useQuizStore = create<GameState>((set, get) => ({
 
   incrementSprintAttempts: () =>
     set((s) => ({ questionsAttempted: s.questionsAttempted + 1 })),
+
+  setSessionId: (id: string) => set({ sessionId: id }),
 }));

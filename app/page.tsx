@@ -16,7 +16,7 @@ import {
   ChevronDown,
   ArrowUpRight,
 } from "lucide-react";
-import { SPORT_LIST, SPORT_META, QUESTIONS } from "@/data/questions";
+import { SPORT_LIST, SPORT_META } from "@/data/questions";
 import { audio } from "@/lib/audio";
 
 const modes = [
@@ -53,7 +53,7 @@ const modes = [
 const stats = [
   { icon: <Gamepad2 size={16} />, value: "8", label: "Sports", color: "#00d4ff" },
   { icon: <Calendar size={16} />, value: "1990–2026", label: "Coverage", color: "#a855f7" },
-  { icon: <HelpCircle size={16} />, value: String(QUESTIONS.length) + "+", label: "Questions", color: "#22d37e" },
+  { icon: <HelpCircle size={16} />, value: "AI Generated", label: "Questions", color: "#22d37e" },
   { icon: <Users size={16} />, value: "4", label: "Game Modes", color: "#f59e0b" },
 ];
 
@@ -225,7 +225,7 @@ export default function Home() {
               </h2>
             </div>
             <div className="arena-pill hidden sm:flex">
-              {QUESTIONS.length} questions
+              Infinite AI trivia
             </div>
           </div>
         </AnimatedSection>

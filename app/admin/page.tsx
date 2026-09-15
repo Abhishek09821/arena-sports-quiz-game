@@ -1,631 +1,411 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { motion } from "motion/react";
-import {
-  ArrowLeft,
-  Plus,
-  Search,
-  Edit3,
-  Trash2,
-  FileUp,
-  CheckCircle,
-  XCircle,
-  FileJson,
-  FileText,
-  BarChart3,
-  HelpCircle,
-  Shield,
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { QUESTIONS, SPORT_LIST, DIFFICULTY_LIST, SPORT_META, type Sport, type Difficulty } from "@/data/questions";
-import { validateQuestions, parseCSV } from "@/lib/validation";
+import {
+  Shield,
+  ArrowLeft,
+  BarChart3,
+  Users,
+  Gamepad2,
+  Trophy,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
+import { useAuth } from "@/components/AuthContext";
+import { SPORT_LIST, DIFFICULTY_LIST, SPORT_META } from "@/data/questions";
 import { audio } from "@/lib/audio";
 
-type AdminTab = "dashboard" | "questions" | "add" | "import";
+interface AdminStats {
+  totalUsers: number;
+  totalSessions: number;
+  totalQuestions: number;
+  totalChallenges: number;
+  sportCounts: Record<string, number>;
+  diffCounts: Record<string, number>;
+  recentSessions: Array<{
+    id: string;
+    sport: string;
+    difficulty: string;
+    question_count: number;
+    score: number;
+    accuracy: number;
+    status: string;
+    created_at: string;
+  }>;
+}
+
+interface UserProfileRow {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  total_games_played: number;
+  total_score: number;
+  created_at: string;
+}
+
+type Tab = "overview" | "users" | "sessions";
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<AdminTab>("dashboard");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterSport, setFilterSport] = useState<Sport | "All">("All");
-  const [filterDifficulty, setFilterDifficulty] = useState<Difficulty | "All">("All");
+  const router = useRouter();
+  const { user, isAdmin, isLoading, token } = useAuth();
 
-  return (
-    <main className="arena-container pb-16">
-      <div className="pt-10 pb-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors"
-        >
-          <ArrowLeft size={15} /> Home
-        </Link>
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [userList, setUserList] = useState<UserProfileRow[]>([]);
+  const [isFetching, setIsFetching] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <div className="flex items-center gap-2 mt-8">
-            <Shield size={16} className="text-arena-accent" />
-            <span className="arena-eyebrow">Admin Panel</span>
-          </div>
-          <h1 className="font-display text-[clamp(36px,6vw,60px)] tracking-[-0.06em] leading-[0.95] mt-2">
-            Question Management
-          </h1>
-        </motion.div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-        {(
-          [
-            { id: "dashboard", icon: <BarChart3 size={15} />, label: "Dashboard" },
-            { id: "questions", icon: <HelpCircle size={15} />, label: "Questions" },
-            { id: "add", icon: <Plus size={15} />, label: "Add Question" },
-            { id: "import", icon: <FileUp size={15} />, label: "Import" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            className={`arena-btn text-sm whitespace-nowrap ${tab === t.id ? "arena-btn-primary" : "arena-btn-ghost"}`}
-            onClick={() => { setTab(t.id); audio.click(); }}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Dashboard */}
-      {tab === "dashboard" && <DashboardTab />}
-
-      {/* Questions List */}
-      {tab === "questions" && (
-        <QuestionsTab
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          filterSport={filterSport}
-          setFilterSport={setFilterSport}
-          filterDifficulty={filterDifficulty}
-          setFilterDifficulty={setFilterDifficulty}
-        />
-      )}
-
-      {/* Add Question */}
-      {tab === "add" && <AddQuestionTab />}
-
-      {/* Import */}
-      {tab === "import" && <ImportTab />}
-    </main>
-  );
-}
-
-// ── Dashboard ──────────────────────────────────────────────
-function DashboardTab() {
-  const sportCounts = SPORT_LIST.map((sport) => ({
-    sport,
-    count: QUESTIONS.filter((q) => q.sport === sport).length,
-    icon: SPORT_META[sport].icon,
-  }));
-
-  const diffCounts = DIFFICULTY_LIST.map((diff) => ({
-    diff,
-    count: QUESTIONS.filter((q) => q.difficulty === diff).length,
-  }));
-
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <div className="arena-card text-center py-4">
-          <div className="font-display text-3xl font-bold text-arena-accent">
-            {QUESTIONS.length}
-          </div>
-          <div className="text-xs text-arena-muted uppercase tracking-wider font-semibold mt-1">
-            Total Questions
-          </div>
-        </div>
-        <div className="arena-card text-center py-4">
-          <div className="font-display text-3xl font-bold text-arena-good">
-            {SPORT_LIST.length}
-          </div>
-          <div className="text-xs text-arena-muted uppercase tracking-wider font-semibold mt-1">
-            Sports
-          </div>
-        </div>
-        <div className="arena-card text-center py-4">
-          <div className="font-display text-3xl font-bold text-arena-accent2">
-            {DIFFICULTY_LIST.length}
-          </div>
-          <div className="text-xs text-arena-muted uppercase tracking-wider font-semibold mt-1">
-            Difficulty Levels
-          </div>
-        </div>
-        <div className="arena-card text-center py-4">
-          <div className="font-display text-3xl font-bold text-arena-warn">
-            1990–2026
-          </div>
-          <div className="text-xs text-arena-muted uppercase tracking-wider font-semibold mt-1">
-            Year Range
-          </div>
-        </div>
-      </div>
-
-      {/* Sport breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="arena-card">
-          <h3 className="font-display font-bold tracking-tight mb-4">
-            Questions by Sport
-          </h3>
-          {sportCounts.map(({ sport, count, icon }) => (
-            <div key={sport} className="flex items-center justify-between py-2 border-b border-arena-line last:border-0">
-              <div className="flex items-center gap-2">
-                <span>{icon}</span>
-                <span className="text-sm font-medium">{sport}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-24 h-1.5 bg-white/[.06] rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-arena-accent"
-                    style={{ width: `${(count / QUESTIONS.length) * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm text-arena-muted w-8 text-right">{count}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="arena-card">
-          <h3 className="font-display font-bold tracking-tight mb-4">
-            Questions by Difficulty
-          </h3>
-          {diffCounts.map(({ diff, count }) => {
-            const colors: Record<Difficulty, string> = {
-              Easy: "bg-arena-good",
-              Medium: "bg-arena-warn",
-              Hard: "bg-orange-500",
-              Legendary: "bg-arena-bad",
-            };
-            return (
-              <div key={diff} className="flex items-center justify-between py-2 border-b border-arena-line last:border-0">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${colors[diff]}`} />
-                  <span className="text-sm font-medium">{diff}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-24 h-1.5 bg-white/[.06] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${colors[diff]}`}
-                      style={{ width: `${(count / QUESTIONS.length) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-arena-muted w-8 text-right">{count}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Questions List ─────────────────────────────────────────
-function QuestionsTab({
-  searchQuery,
-  setSearchQuery,
-  filterSport,
-  setFilterSport,
-  filterDifficulty,
-  setFilterDifficulty,
-}: {
-  searchQuery: string;
-  setSearchQuery: (v: string) => void;
-  filterSport: Sport | "All";
-  setFilterSport: (v: Sport | "All") => void;
-  filterDifficulty: Difficulty | "All";
-  setFilterDifficulty: (v: Difficulty | "All") => void;
-}) {
-  const filtered = useMemo(() => {
-    return QUESTIONS.filter((q) => {
-      if (filterSport !== "All" && q.sport !== filterSport) return false;
-      if (filterDifficulty !== "All" && q.difficulty !== filterDifficulty) return false;
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        return (
-          q.question.toLowerCase().includes(query) ||
-          q.id.toLowerCase().includes(query)
-        );
+  // Authorization check
+  useEffect(() => {
+    if (!isLoading) {
+      if (!user) {
+        router.push("/admin/login");
+      } else if (!isAdmin) {
+        setFetchError("Unauthorized: You do not possess administrator credentials.");
+        setIsFetching(false);
       }
-      return true;
-    });
-  }, [searchQuery, filterSport, filterDifficulty]);
-
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-4">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-arena-muted" />
-          <input
-            className="arena-input pl-9 text-sm"
-            placeholder="Search questions..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <select
-          className="arena-select w-auto text-sm"
-          value={filterSport}
-          onChange={(e) => setFilterSport(e.target.value as Sport | "All")}
-        >
-          <option value="All">All Sports</option>
-          {SPORT_LIST.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <select
-          className="arena-select w-auto text-sm"
-          value={filterDifficulty}
-          onChange={(e) => setFilterDifficulty(e.target.value as Difficulty | "All")}
-        >
-          <option value="All">All Difficulties</option>
-          {DIFFICULTY_LIST.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="text-sm text-arena-muted mb-3">
-        Showing {filtered.length} of {QUESTIONS.length} questions
-      </div>
-
-      {/* Question List */}
-      <div className="grid gap-2">
-        {filtered.slice(0, 50).map((q) => (
-          <div
-            key={q.id}
-            className="arena-card flex items-start gap-3 py-3 px-4"
-          >
-            <div className="flex-shrink-0 mt-0.5">
-              <span className="text-lg">{SPORT_META[q.sport]?.icon}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{q.question}</div>
-              <div className="flex gap-2 mt-1.5">
-                <span className="arena-pill text-[10px]">{q.sport}</span>
-                <span className="arena-pill text-[10px]">{q.difficulty}</span>
-                <span className="arena-pill text-[10px]">{q.year}</span>
-                <span className="arena-pill text-[10px]">{q.id}</span>
-              </div>
-            </div>
-            <div className="flex gap-1.5 flex-shrink-0">
-              <button className="p-1.5 rounded-lg hover:bg-white/[.06] text-arena-muted hover:text-arena-text transition-colors" title="Edit">
-                <Edit3 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {filtered.length > 50 && (
-        <div className="text-center text-sm text-arena-muted mt-4">
-          Showing first 50 results. Refine your search.
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-// ── Add Question ───────────────────────────────────────────
-function AddQuestionTab() {
-  const [form, setForm] = useState({
-    sport: "Cricket" as Sport,
-    year: 2024,
-    difficulty: "Medium" as Difficulty,
-    question: "",
-    option_a: "",
-    option_b: "",
-    option_c: "",
-    option_d: "",
-    answer: 0,
-    explanation: "",
-    source: "",
-  });
-  const [success, setSuccess] = useState(false);
-
-  const handleSubmit = () => {
-    const result = validateQuestions([
-      {
-        sport: form.sport,
-        year: form.year,
-        difficulty: form.difficulty,
-        question: form.question,
-        options: [form.option_a, form.option_b, form.option_c, form.option_d],
-        answer: form.answer,
-        explanation: form.explanation,
-      },
-    ]);
-
-    if (result.valid) {
-      setSuccess(true);
-      audio.correct();
-      // In production, this would save to Supabase
-      setTimeout(() => setSuccess(false), 3000);
-    } else {
-      audio.wrong();
     }
-  };
+  }, [user, isAdmin, isLoading, router]);
 
-  return (
-    <motion.div
-      className="max-w-2xl"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
-      <div className="arena-card">
-        <h3 className="font-display font-bold tracking-tight mb-4">
-          Add New Question
-        </h3>
+  const loadStats = async () => {
+    if (!token) return;
+    setIsFetching(true);
+    setFetchError(null);
 
-        <div className="grid gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="block">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-                Sport
-              </span>
-              <select
-                className="arena-select text-sm"
-                value={form.sport}
-                onChange={(e) => setForm({ ...form, sport: e.target.value as Sport })}
-              >
-                {SPORT_LIST.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-                Difficulty
-              </span>
-              <select
-                className="arena-select text-sm"
-                value={form.difficulty}
-                onChange={(e) => setForm({ ...form, difficulty: e.target.value as Difficulty })}
-              >
-                {DIFFICULTY_LIST.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-                Year
-              </span>
-              <input
-                className="arena-input text-sm"
-                type="number"
-                min={1990}
-                max={2026}
-                value={form.year}
-                onChange={(e) => setForm({ ...form, year: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-
-          <label className="block">
-            <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-              Question
-            </span>
-            <textarea
-              className="arena-textarea text-sm min-h-[80px]"
-              value={form.question}
-              onChange={(e) => setForm({ ...form, question: e.target.value })}
-              placeholder="Enter your question..."
-            />
-          </label>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(["a", "b", "c", "d"] as const).map((letter, i) => (
-              <label key={letter} className="block">
-                <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-                  Option {letter.toUpperCase()} {form.answer === i && "✓ Correct"}
-                </span>
-                <div className="flex gap-2">
-                  <input
-                    className="arena-input text-sm flex-1"
-                    value={form[`option_${letter}` as keyof typeof form] as string}
-                    onChange={(e) =>
-                      setForm({ ...form, [`option_${letter}`]: e.target.value })
-                    }
-                    placeholder={`Option ${letter.toUpperCase()}`}
-                  />
-                  <button
-                    className={`w-9 h-9 rounded-lg grid place-items-center transition-colors flex-shrink-0 ${
-                      form.answer === i
-                        ? "bg-arena-good/20 text-arena-good border border-arena-good/30"
-                        : "bg-white/[.04] text-arena-muted border border-arena-line hover:border-arena-good/30"
-                    }`}
-                    onClick={() => setForm({ ...form, answer: i })}
-                    title="Mark as correct"
-                  >
-                    <CheckCircle size={14} />
-                  </button>
-                </div>
-              </label>
-            ))}
-          </div>
-
-          <label className="block">
-            <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-              Explanation
-            </span>
-            <textarea
-              className="arena-textarea text-sm min-h-[60px]"
-              value={form.explanation}
-              onChange={(e) => setForm({ ...form, explanation: e.target.value })}
-              placeholder="Why is this the correct answer?"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1">
-              Source (optional)
-            </span>
-            <input
-              className="arena-input text-sm"
-              value={form.source}
-              onChange={(e) => setForm({ ...form, source: e.target.value })}
-              placeholder="Where did you verify this fact?"
-            />
-          </label>
-
-          <button
-            className="arena-btn arena-btn-primary w-full justify-center"
-            onClick={handleSubmit}
-          >
-            <Plus size={16} />
-            Add Question
-          </button>
-
-          {success && (
-            <div className="arena-notice">
-              <CheckCircle size={14} className="inline mr-1 text-arena-good align-[-2px]" />
-              Question validated successfully. In production, this saves to Supabase.
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Import ─────────────────────────────────────────────────
-function ImportTab() {
-  const [text, setText] = useState("");
-  const [mode, setMode] = useState<"json" | "csv">("json");
-  const [results, setResults] = useState<{
-    valid: boolean;
-    count: number;
-    errors: string[];
-  } | null>(null);
-
-  const handleValidate = () => {
     try {
-      let rawData: unknown[];
-      if (mode === "json") {
-        rawData = JSON.parse(text);
-      } else {
-        rawData = parseCSV(text);
+      const res = await fetch("/api/admin/stats", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || "Failed to fetch stats");
       }
-
-      const result = validateQuestions(rawData as unknown[], { checkDuplicates: true });
-      setResults({
-        valid: result.valid,
-        count: result.questions.length,
-        errors: result.errors.map(
-          (e) => `${e.index >= 0 ? `Row ${e.index + 1}` : "Set"}: ${e.message}`
-        ),
-      });
-      audio.click();
-    } catch (e) {
-      setResults({
-        valid: false,
-        count: 0,
-        errors: [e instanceof Error ? e.message : "Parse error"],
-      });
+      setStats(data.stats);
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : "Error loading admin telemetry");
+    } finally {
+      setIsFetching(false);
     }
   };
 
-  return (
-    <motion.div
-      className="max-w-2xl"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
-      <div className="arena-card">
-        <h3 className="font-display font-bold tracking-tight mb-4">
-          Bulk Import Questions
-        </h3>
+  const loadUsers = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/admin/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUserList(data.users);
+      }
+    } catch {
+      // Ignore
+    }
+  };
 
-        <div className="flex gap-2 mb-4">
-          <button
-            className={`arena-btn text-sm ${mode === "json" ? "arena-btn-primary" : "arena-btn-ghost"}`}
-            onClick={() => setMode("json")}
-          >
-            <FileJson size={15} />
-            JSON
-          </button>
-          <button
-            className={`arena-btn text-sm ${mode === "csv" ? "arena-btn-primary" : "arena-btn-ghost"}`}
-            onClick={() => setMode("csv")}
-          >
-            <FileText size={15} />
-            CSV
-          </button>
+  useEffect(() => {
+    if (isAdmin && token) {
+      loadStats();
+      loadUsers();
+    }
+  }, [isAdmin, token]);
+
+  if (isLoading || (isFetching && !stats)) {
+    return (
+      <main className="arena-container min-h-[calc(100vh-80px)] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-arena-muted">
+          <Loader2 size={32} className="animate-spin text-arena-accent" />
+          <span className="text-sm">Connecting to Admin Security Gateway...</span>
         </div>
+      </main>
+    );
+  }
 
-        <textarea
-          className="arena-textarea text-sm font-mono"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={
-            mode === "json"
-              ? 'Paste JSON array of question objects...'
-              : 'Paste CSV with headers: question,option_a,option_b,option_c,option_d,answer,sport,difficulty,year,explanation'
-          }
-        />
-
-        <div className="flex gap-2 mt-3">
-          <button
-            className="arena-btn arena-btn-ghost text-sm"
-            onClick={() => { setText(""); setResults(null); }}
-          >
-            <Trash2 size={15} />
-            Clear
-          </button>
-          <button
-            className="arena-btn text-sm"
-            onClick={handleValidate}
-            disabled={!text.trim()}
-          >
-            <FileUp size={15} />
-            Validate & Preview
-          </button>
-        </div>
-
-        {results && (
-          <div className={`mt-4 arena-notice ${!results.valid ? 'border-arena-bad/30' : ''}`}>
-            <div className="flex items-center gap-2 mb-2">
-              {results.valid ? (
-                <CheckCircle size={15} className="text-arena-good" />
-              ) : (
-                <XCircle size={15} className="text-arena-bad" />
-              )}
-              <span className="font-semibold text-sm">
-                {results.valid
-                  ? `${results.count} questions validated successfully`
-                  : `Validation failed`}
-              </span>
-            </div>
-            {results.errors.map((e, i) => (
-              <div key={i} className="text-sm text-arena-muted">• {e}</div>
-            ))}
-            {results.valid && (
-              <button className="arena-btn arena-btn-primary text-sm mt-3">
-                <Plus size={15} />
-                Import to Database
-              </button>
-            )}
+  if (fetchError) {
+    return (
+      <main className="arena-container py-16 max-w-lg mx-auto text-center">
+        <div className="arena-card border-arena-bad/30 p-8 space-y-4">
+          <div className="w-12 h-12 rounded-full bg-arena-bad/10 text-arena-bad grid place-items-center mx-auto">
+            <Shield size={24} />
           </div>
-        )}
+          <h2 className="font-display text-2xl font-bold text-arena-bad">Access Restricted</h2>
+          <p className="text-sm text-arena-muted">{fetchError}</p>
+          <div className="pt-2 flex justify-center gap-3">
+            <Link href="/admin/login" className="arena-btn arena-btn-primary text-xs">
+              Sign In as Admin
+            </Link>
+            <Link href="/" className="arena-btn arena-btn-ghost text-xs">
+              Return Home
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="arena-container pb-20">
+      <div className="pt-10 pb-6 flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors mb-3"
+          >
+            <ArrowLeft size={15} /> Home
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <Shield size={20} className="text-arena-accent" />
+            <span className="arena-eyebrow text-arena-accent">System Administration</span>
+          </div>
+          <h1 className="font-display text-[clamp(32px,5vw,52px)] font-bold tracking-tight mt-1">
+            Arena Command Center
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { audio.click(); loadStats(); loadUsers(); }}
+            className="arena-btn arena-btn-ghost text-xs"
+            title="Refresh Telemetry"
+          >
+            <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
       </div>
 
-      <div className="arena-notice mt-4">
-        <Shield size={14} className="inline mr-1 align-[-2px]" />
-        In production, imported questions go through a verification queue before becoming active.
-        Duplicate detection uses normalized text hashing.
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6 border-b border-arena-line pb-3">
+        <button
+          className={`arena-btn text-xs ${activeTab === "overview" ? "arena-btn-primary" : "arena-btn-ghost"}`}
+          onClick={() => { setActiveTab("overview"); audio.click(); }}
+        >
+          <BarChart3 size={14} /> Telemetry Overview
+        </button>
+        <button
+          className={`arena-btn text-xs ${activeTab === "users" ? "arena-btn-primary" : "arena-btn-ghost"}`}
+          onClick={() => { setActiveTab("users"); audio.click(); }}
+        >
+          <Users size={14} /> User Accounts ({stats?.totalUsers || 0})
+        </button>
+        <button
+          className={`arena-btn text-xs ${activeTab === "sessions" ? "arena-btn-primary" : "arena-btn-ghost"}`}
+          onClick={() => { setActiveTab("sessions"); audio.click(); }}
+        >
+          <Gamepad2 size={14} /> Live Quiz Sessions ({stats?.totalSessions || 0})
+        </button>
       </div>
-    </motion.div>
+
+      {/* TAB 1: Overview */}
+      {activeTab === "overview" && stats && (
+        <div className="space-y-6">
+          {/* Key Metric Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+            <div className="arena-card p-4">
+              <div className="flex items-center justify-between text-arena-muted mb-2">
+                <span className="text-xs font-semibold uppercase">Total Users</span>
+                <Users size={16} className="text-arena-accent" />
+              </div>
+              <div className="font-display text-3xl font-bold">{stats.totalUsers}</div>
+              <div className="text-[11px] text-arena-muted mt-1">Registered profiles</div>
+            </div>
+
+            <div className="arena-card p-4">
+              <div className="flex items-center justify-between text-arena-muted mb-2">
+                <span className="text-xs font-semibold uppercase">Quiz Sessions</span>
+                <Gamepad2 size={16} className="text-arena-accent2" />
+              </div>
+              <div className="font-display text-3xl font-bold">{stats.totalSessions}</div>
+              <div className="text-[11px] text-arena-muted mt-1">Completed & in-progress</div>
+            </div>
+
+            <div className="arena-card p-4">
+              <div className="flex items-center justify-between text-arena-muted mb-2">
+                <span className="text-xs font-semibold uppercase">AI Questions</span>
+                <Sparkles size={16} className="text-arena-gold" />
+              </div>
+              <div className="font-display text-3xl font-bold">{stats.totalQuestions}</div>
+              <div className="text-[11px] text-arena-muted mt-1">Database cached pool</div>
+            </div>
+
+            <div className="arena-card p-4">
+              <div className="flex items-center justify-between text-arena-muted mb-2">
+                <span className="text-xs font-semibold uppercase">Challenges</span>
+                <Trophy size={16} className="text-arena-good" />
+              </div>
+              <div className="font-display text-3xl font-bold">{stats.totalChallenges}</div>
+              <div className="text-[11px] text-arena-muted mt-1">Custom player decks</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Questions by Sport */}
+            <div className="arena-card space-y-4">
+              <div className="arena-eyebrow">Database Distribution</div>
+              <h3 className="font-display font-bold text-lg">Questions by Sport</h3>
+
+              <div className="space-y-2.5">
+                {SPORT_LIST.map((s) => {
+                  const count = stats.sportCounts[s] || 0;
+                  const maxCount = Math.max(...Object.values(stats.sportCounts), 1);
+                  const pct = Math.round((count / maxCount) * 100);
+                  const meta = SPORT_META[s];
+
+                  return (
+                    <div key={s} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-medium">
+                        <span className="flex items-center gap-1.5">
+                          <span>{meta.icon}</span>
+                          <span>{s}</span>
+                        </span>
+                        <span className="text-arena-muted">{count} questions</span>
+                      </div>
+                      <div className="w-full bg-white/[.04] h-2 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-arena-accent to-arena-accent2 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.max(pct, 4)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Questions by Difficulty & Activity */}
+            <div className="space-y-6">
+              <div className="arena-card space-y-4">
+                <div className="arena-eyebrow">Difficulty Mix</div>
+                <h3 className="font-display font-bold text-lg">Question Complexity</h3>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {DIFFICULTY_LIST.map((d) => (
+                    <div key={d} className="p-3 rounded-xl bg-white/[.03] border border-arena-line text-center">
+                      <div className="text-[10px] uppercase font-semibold text-arena-muted">{d}</div>
+                      <div className="font-display text-2xl font-bold mt-1">
+                        {stats.diffCounts[d] || 0}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recent Quiz Sessions Activity */}
+              <div className="arena-card space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display font-bold text-base">Recent Game Activity</h3>
+                  <span className="text-xs text-arena-muted">Last 10 Rounds</span>
+                </div>
+
+                <div className="space-y-2">
+                  {stats.recentSessions.length === 0 ? (
+                    <div className="text-xs text-arena-muted text-center py-6">No recent quiz sessions yet.</div>
+                  ) : (
+                    stats.recentSessions.map((sess) => (
+                      <div
+                        key={sess.id}
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-white/[.02] border border-arena-line text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-arena-text">{sess.sport}</span>
+                          <span className="arena-pill text-[10px] px-1.5 py-0.5">{sess.difficulty}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-arena-muted">
+                          <span className="text-arena-accent font-semibold">{sess.score} pts</span>
+                          <span>{sess.accuracy}% acc</span>
+                          <span className="text-[10px]">{new Date(sess.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: Users */}
+      {activeTab === "users" && (
+        <div className="arena-card overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-arena-line text-arena-muted uppercase tracking-wider">
+                <th className="py-3 px-4">User</th>
+                <th className="py-3 px-4">Role</th>
+                <th className="py-3 px-4">Games Played</th>
+                <th className="py-3 px-4">Total Score</th>
+                <th className="py-3 px-4">Joined</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-arena-line">
+              {userList.map((u) => (
+                <tr key={u.id} className="hover:bg-white/[.02] transition-colors">
+                  <td className="py-3 px-4 font-medium text-arena-text">
+                    <div>{u.display_name || "Anonymous"}</div>
+                    <div className="text-[10px] text-arena-muted">{u.email}</div>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={`arena-pill px-2 py-0.5 text-[10px] ${u.role === "admin" ? "border-arena-accent text-arena-accent" : ""}`}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4">{u.total_games_played}</td>
+                  <td className="py-3 px-4 text-arena-accent font-semibold">{u.total_score}</td>
+                  <td className="py-3 px-4 text-arena-muted">
+                    {new Date(u.created_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* TAB 3: Sessions */}
+      {activeTab === "sessions" && stats && (
+        <div className="arena-card overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-arena-line text-arena-muted uppercase tracking-wider">
+                <th className="py-3 px-4">Session ID</th>
+                <th className="py-3 px-4">Sport</th>
+                <th className="py-3 px-4">Difficulty</th>
+                <th className="py-3 px-4">Length</th>
+                <th className="py-3 px-4">Score</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-arena-line">
+              {stats.recentSessions.map((s) => (
+                <tr key={s.id} className="hover:bg-white/[.02] transition-colors">
+                  <td className="py-3 px-4 font-mono text-[11px] text-arena-muted">
+                    {s.id.slice(0, 12)}...
+                  </td>
+                  <td className="py-3 px-4 font-medium text-arena-text">{s.sport}</td>
+                  <td className="py-3 px-4">{s.difficulty}</td>
+                  <td className="py-3 px-4">{s.question_count} Qs</td>
+                  <td className="py-3 px-4 text-arena-accent font-semibold">{s.score}</td>
+                  <td className="py-3 px-4">
+                    <span className="arena-pill text-[10px] px-2 py-0.5">
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-arena-muted">
+                    {new Date(s.created_at).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </main>
   );
 }

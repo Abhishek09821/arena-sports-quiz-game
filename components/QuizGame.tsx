@@ -108,20 +108,56 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
       } else {
         audio.wrong();
       }
+
+      // Persist answer progress to Supabase
+      const state = useQuizStore.getState();
+      if (state.sessionId && q) {
+        fetch("/api/quiz/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: state.sessionId,
+            questionId: q.id,
+            selectedOption: i,
+            correctOption: q.answer,
+            isCorrect: ok,
+            timeLeft: time,
+            pointsEarned: state.answerHistory[state.answerHistory.length - 1]?.pointsEarned || 0,
+          }),
+        }).catch(() => {});
+      }
     },
-    [locked, choose, time]
+    [locked, choose, time, q]
   );
 
   const handleNext = useCallback(() => {
     audio.click();
     if (isLast) {
       setFinished(true);
-      const finalCorrect = useQuizStore.getState().correct;
-      const finalTotal = useQuizStore.getState().questions.length;
+      const state = useQuizStore.getState();
+      const finalCorrect = state.correct;
+      const finalTotal = state.questions.length;
       if (finalCorrect >= finalTotal * 0.7) {
         audio.win();
       } else {
         audio.lose();
+      }
+
+      // Persist session completion to Supabase
+      if (state.sessionId) {
+        fetch("/api/quiz/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: state.sessionId,
+            score: state.score,
+            accuracy: finalTotal > 0 ? (finalCorrect / finalTotal) * 100 : 0,
+            correctCount: finalCorrect,
+            wrongCount: state.wrong,
+            bestStreak: state.bestStreak,
+            totalTimeSeconds: state.totalTimeTaken,
+          }),
+        }).catch(() => {});
       }
     } else {
       next();
