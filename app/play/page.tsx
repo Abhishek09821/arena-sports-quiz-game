@@ -3,7 +3,7 @@
 import { useState, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
-import { buildGame, getAvailableCount } from "@/lib/quiz";
+import { buildGame, getAvailableCount, getUnseenCount, clearPersistentSeenHistory } from "@/lib/quiz";
 import { SPORT_LIST, SPORT_META, DIFFICULTY_LIST, type Difficulty, type Sport } from "@/data/questions";
 import { useQuizStore } from "@/lib/store";
 import { trackEvent } from "@/lib/analytics";
@@ -40,7 +40,9 @@ function PlayContent() {
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
   const [started, setStarted] = useState(false);
 
+  const [historyTick, setHistoryTick] = useState(0);
   const available = getAvailableCount(sport, difficulty);
+  const unseen = historyTick >= 0 ? getUnseenCount(sport, difficulty) : 0;
 
   const configRef = useRef<HTMLDivElement>(null);
   const configInView = useInView(configRef, { once: true, margin: "-40px" });
@@ -212,8 +214,23 @@ function PlayContent() {
           <h3 className="font-display font-bold tracking-tight mt-1 text-lg">
             {count} questions · {sport} · {difficulty}
           </h3>
-          <div className="text-sm text-arena-muted mt-0.5">
-            {available} questions available · No repeats within a round
+          <div className="text-sm text-arena-muted mt-0.5 flex flex-wrap items-center gap-2">
+            <span>
+              {available} questions ({unseen} fresh / unseen in cycle) · Zero repeats
+            </span>
+            {unseen < available && (
+              <button
+                type="button"
+                className="text-xs text-arena-primary hover:underline font-medium"
+                onClick={() => {
+                  clearPersistentSeenHistory();
+                  setHistoryTick((k) => k + 1);
+                  audio.click();
+                }}
+              >
+                Reset seen deck
+              </button>
+            )}
           </div>
         </div>
         <motion.button
