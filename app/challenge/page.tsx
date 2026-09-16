@@ -24,7 +24,8 @@ import {
   Loader2,
   KeyRound,
   CheckCircle2,
-  ExternalLink,
+  Bookmark,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuizStore } from "@/lib/store";
@@ -42,20 +43,38 @@ import { validateQuestions, parseCSV } from "@/lib/validation";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/components/AuthContext";
 
-type BuilderTab = "play_code" | "ai" | "manual" | "file";
+type BuilderTab = "ai" | "play_code" | "saved" | "manual" | "file";
+
+export interface SavedChallenge {
+  id: string;
+  code: string;
+  title: string;
+  creator_name: string;
+  sport: string;
+  tournament?: string;
+  difficulty: string;
+  created_at: string;
+  question_count: number;
+  questions: Question[];
+}
+
+const SAVED_CHALLENGES_STORAGE_KEY = "arena_saved_challenges_v1";
 
 function ChallengeContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
 
   // Builder State
-  const [activeTab, setActiveTab] = useState<BuilderTab>("play_code");
+  const [activeTab, setActiveTab] = useState<BuilderTab>("ai");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [started, setStarted] = useState(false);
   const [challengeTitle, setChallengeTitle] = useState("Ultimate Sports Challenge");
   const [challengeCode, setChallengeCode] = useState("");
   const [showShareModal, setShowShareModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Saved Challenges State (Persisted in localStorage across reloads and logouts)
+  const [savedChallenges, setSavedChallenges] = useState<SavedChallenge[]>([]);
 
   // Play By Code State
   const [inputCode, setInputCode] = useState("");
@@ -72,7 +91,7 @@ function ChallengeContent() {
     play_count?: number;
   } | null>(null);
   const [loadedQuestions, setLoadedQuestions] = useState<Question[]>([]);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   // Tournament dropdown state
   const [selectedTournament, setSelectedTournament] = useState("All");
@@ -82,6 +101,7 @@ function ChallengeContent() {
   const [aiDifficulty, setAiDifficulty] = useState<Difficulty>("Medium");
   const [aiCategory, setAiCategory] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerating10, setIsGenerating10] = useState(false);
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
 
   // Manual Question State
@@ -101,6 +121,39 @@ function ChallengeContent() {
   const [fileFormat, setFileFormat] = useState<"json" | "csv">("json");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
+  // ── Load Saved Challenges from LocalStorage on mount ─────────
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAVED_CHALLENGES_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setSavedChallenges(parsed);
+        }
+      }
+    } catch (err) {
+      console.error("[Challenge] Error loading saved challenges from localStorage:", err);
+    }
+  }, []);
+
+  const persistSavedChallenges = (updated: SavedChallenge[]) => {
+    setSavedChallenges(updated);
+    try {
+      localStorage.setItem(SAVED_CHALLENGES_STORAGE_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.error("[Challenge] Error saving challenges to localStorage:", err);
+    }
+  };
+
+  const deleteSavedChallenge = (codeToDelete: string) => {
+    if (!confirm(`Are you sure you want to delete challenge ${codeToDelete}? It will be removed from your saved challenges.`)) {
+      return;
+    }
+    audio.click();
+    const next = savedChallenges.filter((c) => c.code !== codeToDelete);
+    persistSavedChallenges(next);
+  };
+
   // ── 0. Load & Play Challenge by Code ────────────────────────
   const loadChallenge = async (codeToLoad: string) => {
     const code = codeToLoad.trim().toUpperCase();
@@ -109,12 +162,31 @@ function ChallengeContent() {
     setLoadError(null);
     audio.click();
 
+    // Check local storage first
+    const localMatch = savedChallenges.find((c) => c.code === code);
+    if (localMatch && localMatch.questions.length > 0) {
+      setLoadedChallenge({
+        id: localMatch.id,
+        code: localMatch.code,
+        title: localMatch.title,
+        creator_name: localMatch.creator_name,
+        sport: localMatch.sport,
+        difficulty: localMatch.difficulty,
+        question_count: localMatch.question_count,
+        play_count: 1,
+      });
+      setLoadedQuestions(localMatch.questions);
+      setIsLoadingChallenge(false);
+      audio.correct();
+      return;
+    }
+
     try {
       const res = await fetch(`/api/challenge/${code}`);
       const data = await res.json();
 
       if (!res.ok || !data.challenge) {
-        throw new Error(data.error || "Challenge not found. Please verify the code.");
+        throw new Error(data.error || "Challenge not found. Please check the code.");
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,29 +227,104 @@ function ChallengeContent() {
     setStarted(true);
   };
 
+  const playSavedChallengeDirectly = (item: SavedChallenge) => {
+    audio.unlock();
+    useQuizStore.getState().start(item.questions, {
+      sport: (item.sport as Sport) || "All Sports",
+      difficulty: (item.difficulty as Difficulty) || "Mixed",
+      mode: "challenge",
+      sessionId: item.id,
+    });
+    trackEvent("game_started", { mode: "challenge", code: item.code, count: item.questions.length });
+    setStarted(true);
+  };
+
   // Auto-load if code is in URL parameters (?code=XYZ123)
   useEffect(() => {
     const queryCode = searchParams.get("code");
     if (queryCode) {
-      setInputCode(queryCode.toUpperCase());
+      const clean = queryCode.trim().toUpperCase();
+      setInputCode(clean);
       setActiveTab("play_code");
-      loadChallenge(queryCode.toUpperCase());
+      loadChallenge(clean);
     }
   }, [searchParams]);
 
-  // ── 1. AI Single Question Generation ────────────────────────
+  // ── 1. 1-Click "Generate Full 10 Questions with Gemini" ─────
+  const generate10WithGemini = async () => {
+    setIsGenerating10(true);
+    audio.click();
+
+    try {
+      const activeTournament = selectedTournament !== "All" ? selectedTournament : (aiCategory || undefined);
+      const res = await fetch("/api/quiz/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "challenge",
+          sport: aiSport,
+          difficulty: aiDifficulty,
+          category: activeTournament,
+          count: 10,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.questions || data.questions.length === 0) {
+        throw new Error(data.error || "Failed to generate 10 questions with Gemini AI.");
+      }
+
+      // Deduplicate by stem to guarantee 10 unique non-repeating questions
+      const seenStems = new Set<string>();
+      const unique10: Question[] = [];
+      for (const q of data.questions) {
+        const norm = (q.question || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 35);
+        if (!seenStems.has(norm)) {
+          seenStems.add(norm);
+          unique10.push(q);
+        }
+        if (unique10.length >= 10) break;
+      }
+
+      // If deduplication yielded < 10, backfill with remaining
+      for (const q of data.questions) {
+        if (!unique10.some((u) => u.id === q.id || u.question === q.question)) {
+          unique10.push(q);
+        }
+        if (unique10.length >= 10) break;
+      }
+
+      const final10 = unique10.slice(0, 10);
+      setQuestions(final10);
+      setChallengeTitle(`${aiSport} ${activeTournament ? activeTournament : "Arena"} Challenge`);
+      audio.correct();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to generate 10 questions with Gemini");
+      audio.wrong();
+    } finally {
+      setIsGenerating10(false);
+    }
+  };
+
+  // ── 2. AI Single Question Generation ────────────────────────
   const generateOneWithAI = async () => {
+    if (questions.length >= 10) {
+      alert("A challenge set has a maximum of 10 questions. Delete or edit an existing question to replace it.");
+      return;
+    }
+
     setIsGenerating(true);
     audio.click();
 
     try {
+      const activeTournament = selectedTournament !== "All" ? selectedTournament : (aiCategory || undefined);
       const res = await fetch("/api/challenge/generate-question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sport: aiSport,
           difficulty: aiDifficulty,
-          category: aiCategory || undefined,
+          category: activeTournament,
           excludeStems: questions.map((q) => q.question.slice(0, 40)),
           excludeAnswers: questions.map((q) => q.options[q.answer]),
         }),
@@ -200,6 +347,12 @@ function ChallengeContent() {
         category: data.question.category,
       };
 
+      // Ensure no duplicate in set
+      const normNew = newQ.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
+      if (questions.some((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30) === normNew)) {
+        throw new Error("Received a duplicate question. Please try generating again.");
+      }
+
       setQuestions((prev) => [...prev, newQ]);
       audio.correct();
     } catch (err) {
@@ -209,7 +362,7 @@ function ChallengeContent() {
     }
   };
 
-  // ── 2. AI Regenerate Specific Question ──────────────────────
+  // ── 3. AI Regenerate Specific Question ──────────────────────
   const regenerateSingleQuestion = async (index: number) => {
     setRegeneratingIndex(index);
     audio.click();
@@ -222,6 +375,7 @@ function ChallengeContent() {
         body: JSON.stringify({
           sport: target.sport,
           difficulty: target.difficulty,
+          category: target.category || (selectedTournament !== "All" ? selectedTournament : undefined),
           excludeStems: questions.filter((_, i) => i !== index).map((q) => q.question.slice(0, 40)),
         }),
       });
@@ -253,7 +407,7 @@ function ChallengeContent() {
     }
   };
 
-  // ── 3. Manual Question Entry ────────────────────────────────
+  // ── 4. Manual Question Entry ────────────────────────────────
   const addManualQuestion = () => {
     if (!manualQ.trim()) {
       alert("Please enter a question.");
@@ -261,6 +415,16 @@ function ChallengeContent() {
     }
     if (manualOpts.some((o) => !o.trim())) {
       alert("All 4 options must be filled out.");
+      return;
+    }
+    if (questions.length >= 10) {
+      alert("A challenge set must have exactly 10 questions. Remove an existing question or edit it to make changes.");
+      return;
+    }
+
+    const normNew = manualQ.trim().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
+    if (questions.some((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30) === normNew)) {
+      alert("This question or a very similar one already exists in the deck. Duplicate questions are not allowed.");
       return;
     }
 
@@ -285,7 +449,7 @@ function ChallengeContent() {
     setManualExp("");
   };
 
-  // ── 4. Reorder & Delete ─────────────────────────────────────
+  // ── 5. Reorder & Delete ─────────────────────────────────────
   const moveQuestion = (index: number, direction: "up" | "down") => {
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= questions.length) return;
@@ -304,7 +468,7 @@ function ChallengeContent() {
     setQuestions((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // ── 5. Edit Modal ───────────────────────────────────────────
+  // ── 6. Edit Modal ───────────────────────────────────────────
   const openEditModal = (index: number) => {
     setEditingIndex(index);
     setEditForm({ ...questions[index] });
@@ -322,7 +486,7 @@ function ChallengeContent() {
     audio.click();
   };
 
-  // ── 6. File Import & Export ─────────────────────────────────
+  // ── 7. File Import & Export ─────────────────────────────────
   const parseFileInput = () => {
     setValidationErrors([]);
     try {
@@ -346,12 +510,13 @@ function ChallengeContent() {
       if (!result.valid) {
         setValidationErrors(result.errors.map((e) => `Q${e.index + 1}: ${e.message}`));
         if (result.questions.length > 0) {
-          setQuestions((prev) => [...prev, ...result.questions]);
+          setQuestions((prev) => [...prev, ...result.questions].slice(0, 10));
         }
         return;
       }
 
-      setQuestions((prev) => [...prev, ...result.questions]);
+      const combined = [...questions, ...result.questions].slice(0, 10);
+      setQuestions(combined);
       setFileText("");
       audio.challengeCreated();
     } catch (e) {
@@ -398,13 +563,21 @@ function ChallengeContent() {
     URL.revokeObjectURL(url);
   };
 
-  // ── 7. Save & Start Challenge ───────────────────────────────
+  // ── 8. Save & Persist Challenge (Local + Supabase) ───────────
   const saveAndShare = async () => {
-    if (questions.length < 5) {
-      alert("Please prepare at least 5 questions for your challenge.");
+    if (questions.length !== 10) {
+      alert(`A challenge requires exactly 10 questions. Currently you have ${questions.length}/10. Click 'Generate 10 Questions with Gemini' to generate a complete set instantly.`);
       return;
     }
+
     setIsSaving(true);
+    audio.click();
+
+    const fallbackCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const creator = user?.email?.split("@")[0] || "Challenger";
+    const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    let finalCode = fallbackCode;
+    let finalId = `chal-${Date.now()}`;
 
     try {
       const res = await fetch("/api/challenge/save", {
@@ -412,36 +585,74 @@ function ChallengeContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: challengeTitle,
+          sport: questions[0]?.sport || aiSport || "All Sports",
+          difficulty: aiDifficulty || "Mixed",
           questions,
-          creatorName: user?.email?.split("@")[0] || "Challenger",
+          creatorName: creator,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok || !data.success || !data.code) {
-        throw new Error(data.error || "Failed to save challenge to database.");
+      if (res.ok && data.success && data.code) {
+        finalCode = data.code;
+        finalId = data.challengeId || finalId;
       }
-
-      setChallengeCode(data.code);
-      setShowShareModal(true);
-      audio.challengeCreated();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Error saving challenge.");
-    } finally {
-      setIsSaving(false);
+    } catch (dbErr) {
+      console.warn("[Challenge Save] Network/Supabase issue; saved locally to device:", dbErr);
     }
+
+    // Persist in localStorage so it survives reload and logout
+    const savedItem: SavedChallenge = {
+      id: finalId,
+      code: finalCode,
+      title: challengeTitle,
+      creator_name: creator,
+      sport: questions[0]?.sport || aiSport || "All Sports",
+      tournament: selectedTournament !== "All" ? selectedTournament : undefined,
+      difficulty: aiDifficulty || "Mixed",
+      created_at: dateStr,
+      question_count: 10,
+      questions: [...questions],
+    };
+
+    const existingIdx = savedChallenges.findIndex((c) => c.code === finalCode);
+    let updatedList: SavedChallenge[];
+    if (existingIdx >= 0) {
+      updatedList = [...savedChallenges];
+      updatedList[existingIdx] = savedItem;
+    } else {
+      updatedList = [savedItem, ...savedChallenges];
+    }
+    persistSavedChallenges(updatedList);
+
+    setChallengeCode(finalCode);
+    setShowShareModal(true);
+    audio.challengeCreated();
+    setIsSaving(false);
   };
 
   const startChallengeNow = () => {
-    if (questions.length === 0) return;
+    if (questions.length !== 10) {
+      alert(`A challenge requires strictly 10 questions. Currently you have ${questions.length}/10. Add or generate questions to make it exactly 10.`);
+      return;
+    }
     audio.unlock();
     useQuizStore.getState().start(questions, {
-      sport: "All Sports",
+      sport: (questions[0]?.sport as Sport) || "All Sports",
       difficulty: "Mixed",
       mode: "challenge",
     });
     trackEvent("challenge_created", { count: questions.length });
     setStarted(true);
+  };
+
+  const copyShareLink = (code: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const directUrl = `${origin}/challenge?code=${code}`;
+    navigator.clipboard?.writeText(directUrl);
+    audio.click();
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2500);
   };
 
   if (started) return <QuizGame onExit={() => setStarted(false)} />;
@@ -467,8 +678,8 @@ function ChallengeContent() {
             <span className="arena-gradient-text">Compete.</span>
           </h1>
           <p className="text-arena-muted max-w-[700px] mt-3 leading-relaxed">
-            Build custom challenges question-by-question with AI, manual entry, or file import.
-            Every question can be regenerated, edited, and shared with friends.
+            Build custom 10-question challenges with Google Gemini AI, manual entry, or file import.
+            Challenges stay saved on your profile across reloads and logouts until you delete them.
           </p>
         </motion.div>
       </div>
@@ -478,32 +689,171 @@ function ChallengeContent() {
         <div className="lg:col-span-7 flex flex-col gap-4">
           <div className="arena-card p-2 flex gap-1.5 flex-wrap">
             <button
-              className={`arena-btn text-xs flex-1 min-w-[120px] justify-center ${activeTab === "play_code" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
+              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "ai" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
+              onClick={() => { setActiveTab("ai"); audio.click(); }}
+            >
+              <Sparkles size={14} /> Gemini AI
+            </button>
+            <button
+              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "play_code" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("play_code"); audio.click(); }}
             >
               <KeyRound size={14} /> Play Code
             </button>
             <button
-              className={`arena-btn text-xs flex-1 min-w-[120px] justify-center ${activeTab === "ai" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
-              onClick={() => { setActiveTab("ai"); audio.click(); }}
+              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "saved" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
+              onClick={() => { setActiveTab("saved"); audio.click(); }}
             >
-              <Sparkles size={14} /> AI Generator
+              <Bookmark size={14} /> My Challenges ({savedChallenges.length})
             </button>
             <button
-              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "manual" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
+              className={`arena-btn text-xs flex-1 min-w-[100px] justify-center ${activeTab === "manual" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("manual"); audio.click(); }}
             >
-              <Plus size={14} /> Manual Entry
+              <Plus size={14} /> Manual
             </button>
             <button
-              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "file" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
+              className={`arena-btn text-xs flex-1 min-w-[90px] justify-center ${activeTab === "file" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("file"); audio.click(); }}
             >
-              <Upload size={14} /> File Import
+              <Upload size={14} /> File
             </button>
           </div>
 
-          {/* TAB 0: Play by Challenge Code */}
+          {/* TAB: Gemini AI Generator */}
+          {activeTab === "ai" && (
+            <motion.div
+              className="arena-card space-y-4"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="arena-eyebrow">Google Gemini Engine</div>
+                  <h3 className="font-display font-bold text-lg">AI Challenge Generator</h3>
+                </div>
+                <span className="arena-pill px-2.5 py-1 text-xs text-arena-accent font-semibold border-arena-accent/40">
+                  Strictly 1975–2026
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-arena-muted mb-1">Sport (Strictly 6)</label>
+                  <select
+                    value={aiSport}
+                    onChange={(e) => {
+                      const newSport = e.target.value as Sport;
+                      setAiSport(newSport);
+                      setSelectedTournament("All");
+                      setAiCategory("");
+                    }}
+                    className="arena-input text-sm"
+                  >
+                    {SPORT_LIST.map((s) => (
+                      <option key={s} value={s} className="bg-arena-panel">
+                        {s === "Football" ? "Football (Soccer)" : s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-arena-muted mb-1">Difficulty</label>
+                  <select
+                    value={aiDifficulty}
+                    onChange={(e) => setAiDifficulty(e.target.value as Difficulty)}
+                    className="arena-input text-sm"
+                  >
+                    {DIFFICULTY_LIST.map((d) => (
+                      <option key={d} value={d} className="bg-arena-panel">{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tournament Selector Dropdown */}
+              <div>
+                <label className="block text-xs font-semibold text-arena-muted mb-1">
+                  Tournament / League / Category
+                </label>
+                <select
+                  className="arena-input text-sm mb-2"
+                  value={selectedTournament}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedTournament(val);
+                    if (val === "All") {
+                      setAiCategory("");
+                    } else if (val !== "Custom") {
+                      setAiCategory(val);
+                    }
+                  }}
+                >
+                  <option value="All" className="bg-arena-panel">All / Any Tournament ({aiSport})</option>
+                  {(TOURNAMENTS_BY_SPORT[aiSport] || []).map((t) => (
+                    <option key={t} value={t} className="bg-arena-panel">{t}</option>
+                  ))}
+                  <option value="Custom" className="bg-arena-panel">✏️ Enter Custom Tournament / Topic...</option>
+                </select>
+
+                {selectedTournament === "Custom" && (
+                  <input
+                    type="text"
+                    value={aiCategory}
+                    onChange={(e) => setAiCategory(e.target.value)}
+                    placeholder="e.g. 2011 Cricket World Cup, Champions League 2024, WrestleMania 40"
+                    className="arena-input text-sm"
+                    autoFocus
+                  />
+                )}
+              </div>
+
+              {/* 1-Click 10-Question Button */}
+              <div className="p-4 rounded-2xl bg-arena-accent/5 border border-arena-accent/30 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Zap size={16} className="text-arena-accent" />
+                  <span className="text-xs font-bold text-arena-text">Instant 10-Question Generation</span>
+                </div>
+                <p className="text-xs text-arena-muted leading-relaxed">
+                  Synthesize an entire deck of exactly 10 unique, non-repeating trivia questions tailored to{" "}
+                  <strong className="text-arena-text">{aiSport}</strong> with Gemini AI.
+                </p>
+                <button
+                  onClick={generate10WithGemini}
+                  disabled={isGenerating10 || isGenerating}
+                  className="arena-btn arena-btn-primary w-full justify-center py-3 shadow-[0_0_25px_rgba(0,212,255,0.3)] text-sm font-semibold"
+                >
+                  {isGenerating10 ? (
+                    <div className="flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Generating 10 Unique Questions with Gemini AI...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={16} />
+                      <span>Generate Full 10-Question Challenge (1-Click)</span>
+                    </div>
+                  )}
+                </button>
+              </div>
+
+              {/* Or add one by one */}
+              <div className="pt-1 flex items-center justify-between">
+                <span className="text-xs text-arena-muted">Or add questions one at a time:</span>
+                <button
+                  onClick={generateOneWithAI}
+                  disabled={isGenerating || isGenerating10 || questions.length >= 10}
+                  className="arena-btn arena-btn-ghost text-xs border border-white/10"
+                >
+                  {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                  Add Next Single Question ({questions.length}/10)
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* TAB: Play by Challenge Code */}
           {activeTab === "play_code" && (
             <motion.div
               className="arena-card space-y-4"
@@ -513,7 +863,7 @@ function ChallengeContent() {
               <div className="arena-eyebrow">Play a Challenge</div>
               <h3 className="font-display font-bold text-lg">Enter 6-Digit Challenge Code</h3>
               <p className="text-xs text-arena-muted leading-relaxed">
-                Enter a code shared by a creator to load their custom questions and test your skills.
+                Enter a code shared by a friend or creator to load their custom 10-question set and compete.
               </p>
 
               <div className="flex gap-2">
@@ -566,9 +916,6 @@ function ChallengeContent() {
                     <span className="arena-pill px-2.5 py-1 text-arena-accent font-semibold">
                       {loadedQuestions.length} Questions
                     </span>
-                    <span className="arena-pill px-2.5 py-1">
-                      {loadedChallenge.play_count || 0} Total Plays
-                    </span>
                   </div>
 
                   <button
@@ -583,111 +930,94 @@ function ChallengeContent() {
             </motion.div>
           )}
 
-          {/* TAB 1: AI Generator */}
-          {activeTab === "ai" && (
+          {/* TAB: My Saved Challenges (Persistent) */}
+          {activeTab === "saved" && (
             <motion.div
               className="arena-card space-y-4"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <div className="arena-eyebrow">AI Question Generator</div>
-              <h3 className="font-display font-bold text-lg">Generate Questions One-by-One</h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex items-center justify-between">
                 <div>
-                  <label className="block text-xs font-semibold text-arena-muted mb-1">Sport</label>
-                  <select
-                    value={aiSport}
-                    onChange={(e) => {
-                      const newSport = e.target.value as Sport;
-                      setAiSport(newSport);
-                      setSelectedTournament("All");
-                      setAiCategory("");
-                    }}
-                    className="arena-input text-sm"
-                  >
-                    {SPORT_LIST.map((s) => (
-                      <option key={s} value={s} className="bg-arena-panel">
-                        {s === "Football" ? "Football (Soccer)" : s}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="arena-eyebrow">Local & Profile Storage</div>
+                  <h3 className="font-display font-bold text-lg">My Saved Challenges</h3>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-arena-muted mb-1">Difficulty</label>
-                  <select
-                    value={aiDifficulty}
-                    onChange={(e) => setAiDifficulty(e.target.value as Difficulty)}
-                    className="arena-input text-sm"
-                  >
-                    {DIFFICULTY_LIST.map((d) => (
-                      <option key={d} value={d} className="bg-arena-panel">{d}</option>
-                    ))}
-                  </select>
-                </div>
+                <span className="text-xs text-arena-muted">
+                  Persists across reloads & logout
+                </span>
               </div>
 
-              {/* Tournament Selector Dropdown with Custom option */}
-              <div>
-                <label className="block text-xs font-semibold text-arena-muted mb-1">
-                  Tournament / Competition (Dropdown or Custom)
-                </label>
-                <select
-                  className="arena-input text-sm mb-2"
-                  value={selectedTournament}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSelectedTournament(val);
-                    if (val === "All") {
-                      setAiCategory("");
-                    } else if (val !== "Custom") {
-                      setAiCategory(val);
-                    }
-                  }}
-                >
-                  <option value="All" className="bg-arena-panel">All / Any Tournament ({aiSport})</option>
-                  {(TOURNAMENTS_BY_SPORT[aiSport] || []).map((t) => (
-                    <option key={t} value={t} className="bg-arena-panel">{t}</option>
+              {savedChallenges.length === 0 ? (
+                <div className="py-12 text-center text-arena-muted text-xs border border-dashed border-arena-line rounded-2xl space-y-2">
+                  <Bookmark size={24} className="mx-auto text-arena-muted/60" />
+                  <p>You haven&apos;t saved any challenges yet.</p>
+                  <p className="text-[11px] text-arena-muted/80">
+                    Create 10 questions using Gemini AI or Manual Entry, then click &quot;Save &amp; Generate Share Code&quot;.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                  {savedChallenges.map((item) => (
+                    <div
+                      key={item.code}
+                      className="p-4 rounded-2xl bg-white/[.02] border border-arena-line hover:border-arena-accent/40 transition-all space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="font-bold text-sm text-arena-text">{item.title}</h4>
+                          <div className="flex items-center gap-2 text-[11px] text-arena-muted mt-1 flex-wrap">
+                            <span className="arena-pill px-2 py-0.5">{item.sport}</span>
+                            {item.tournament && (
+                              <span className="arena-pill px-2 py-0.5 text-arena-accent">{item.tournament}</span>
+                            )}
+                            <span className="arena-pill px-2 py-0.5">{item.difficulty}</span>
+                            <span>• {item.question_count} Questions</span>
+                            <span>• {item.created_at}</span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="font-display font-bold text-base arena-gradient-text tracking-widest px-2.5 py-1 rounded-lg bg-white/[.04] border border-arena-accent/30 inline-block">
+                            {item.code}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          onClick={() => playSavedChallengeDirectly(item)}
+                          className="arena-btn arena-btn-primary text-xs py-1.5 px-3 flex-1 justify-center"
+                        >
+                          <Play size={13} fill="currentColor" /> Play Now
+                        </button>
+                        <button
+                          onClick={() => copyShareLink(item.code)}
+                          className="arena-btn arena-btn-ghost text-xs py-1.5 px-3 justify-center border border-white/10"
+                          title="Copy Share Link"
+                        >
+                          {copiedCode === item.code ? (
+                            <CheckCircle2 size={13} className="text-arena-good" />
+                          ) : (
+                            <Copy size={13} />
+                          )}
+                          {copiedCode === item.code ? "Copied!" : "Copy Link"}
+                        </button>
+                        <button
+                          onClick={() => deleteSavedChallenge(item.code)}
+                          className="w-8 h-8 rounded-lg grid place-items-center hover:bg-arena-bad/10 text-arena-muted hover:text-arena-bad transition-colors"
+                          title="Delete Challenge"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
                   ))}
-                  <option value="Custom" className="bg-arena-panel">✏️ Enter Custom Tournament / Topic...</option>
-                </select>
-
-                {selectedTournament === "Custom" && (
-                  <input
-                    type="text"
-                    value={aiCategory}
-                    onChange={(e) => setAiCategory(e.target.value)}
-                    placeholder="e.g. 2011 Cricket World Cup, Wimbledon 2023, El Clásico"
-                    className="arena-input text-sm"
-                    autoFocus
-                  />
-                )}
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={generateOneWithAI}
-                  disabled={isGenerating || questions.length >= 30}
-                  className="arena-btn arena-btn-primary w-full justify-center py-3 shadow-[0_0_20px_rgba(0,212,255,0.2)]"
-                >
-                  {isGenerating ? (
-                    <div className="flex items-center gap-2">
-                      <Loader2 size={16} className="animate-spin" />
-                      <span>Synthesizing Question with AI...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Sparkles size={16} />
-                      <span>Generate Next Question ({questions.length + 1})</span>
-                    </div>
-                  )}
-                </button>
-              </div>
+                </div>
+              )}
             </motion.div>
           )}
 
-          {/* TAB 2: Manual Question Entry */}
+          {/* TAB: Manual Question Entry */}
           {activeTab === "manual" && (
             <motion.div
               className="arena-card space-y-4"
@@ -780,14 +1110,15 @@ function ChallengeContent() {
 
               <button
                 onClick={addManualQuestion}
+                disabled={questions.length >= 10}
                 className="arena-btn arena-btn-primary w-full justify-center py-2.5"
               >
-                <Plus size={16} /> Add Question to Deck
+                <Plus size={16} /> Add Question ({questions.length}/10)
               </button>
             </motion.div>
           )}
 
-          {/* TAB 3: File Import / Export */}
+          {/* TAB: File Import / Export */}
           {activeTab === "file" && (
             <motion.div
               className="arena-card space-y-4"
@@ -830,7 +1161,7 @@ function ChallengeContent() {
                   disabled={!fileText.trim()}
                   className="arena-btn arena-btn-primary text-xs"
                 >
-                  <Upload size={14} /> Validate & Append Questions
+                  <Upload size={14} /> Validate & Append (Max 10)
                 </button>
 
                 <div className="flex gap-2">
@@ -872,9 +1203,18 @@ function ChallengeContent() {
           <div className="arena-card space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="arena-eyebrow">Challenge Deck</div>
-                <h3 className="font-display font-bold text-xl">
-                  {questions.length} Questions Loaded
+                <div className="arena-eyebrow">Active Challenge Deck</div>
+                <h3 className="font-display font-bold text-xl flex items-center gap-2">
+                  <span>{questions.length}/10 Questions</span>
+                  {questions.length === 10 ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-arena-good/20 text-arena-good font-semibold">
+                      Deck Ready
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-arena-gold/20 text-arena-gold font-semibold">
+                      Need {10 - questions.length} more
+                    </span>
+                  )}
                 </h3>
               </div>
               <button
@@ -899,11 +1239,14 @@ function ChallengeContent() {
             </div>
 
             {/* Questions list */}
-            <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
               {questions.length === 0 ? (
-                <div className="py-12 text-center text-arena-muted text-sm border border-dashed border-arena-line rounded-xl">
-                  No questions in deck yet.<br />
-                  Use AI Generator or Manual Entry on the left to add questions.
+                <div className="py-12 text-center text-arena-muted text-xs border border-dashed border-arena-line rounded-xl space-y-2">
+                  <Sparkles size={20} className="mx-auto text-arena-accent" />
+                  <p>No questions in deck yet.</p>
+                  <p className="text-arena-text font-semibold">
+                    Click &quot;Generate Full 10-Question Challenge&quot; on the left for instant creation!
+                  </p>
                 </div>
               ) : (
                 questions.map((q, idx) => (
@@ -945,7 +1288,7 @@ function ChallengeContent() {
                           onClick={() => regenerateSingleQuestion(idx)}
                           disabled={regeneratingIndex === idx}
                           className="w-6 h-6 rounded grid place-items-center hover:bg-white/[.06] text-arena-accent2"
-                          title="Regenerate this question with AI"
+                          title="Regenerate this question with Gemini AI"
                         >
                           <RefreshCw size={13} className={regeneratingIndex === idx ? "animate-spin" : ""} />
                         </button>
@@ -959,7 +1302,7 @@ function ChallengeContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-[10px] text-arena-muted">
+                    <div className="flex items-center gap-2 text-[10px] text-arena-muted flex-wrap">
                       <span className="arena-pill px-1.5 py-0.5">{q.sport}</span>
                       <span className="arena-pill px-1.5 py-0.5">{q.difficulty}</span>
                       <span className="truncate">Answer: {q.options[q.answer]}</span>
@@ -973,24 +1316,24 @@ function ChallengeContent() {
             <div className="pt-2 space-y-2">
               <button
                 onClick={startChallengeNow}
-                disabled={questions.length === 0}
-                className="arena-btn arena-btn-primary w-full justify-center py-3"
+                disabled={questions.length !== 10}
+                className="arena-btn arena-btn-primary w-full justify-center py-3 text-sm disabled:opacity-40"
               >
                 <Play size={16} fill="currentColor" />
-                Play This Challenge Now
+                Play This Challenge ({questions.length}/10)
               </button>
 
               <button
                 onClick={saveAndShare}
-                disabled={questions.length < 5 || isSaving}
-                className="arena-btn arena-btn-ghost w-full justify-center py-2.5 text-arena-accent border border-arena-accent/30 hover:bg-arena-accent/10"
+                disabled={questions.length !== 10 || isSaving}
+                className="arena-btn arena-btn-ghost w-full justify-center py-2.5 text-arena-accent border border-arena-accent/30 hover:bg-arena-accent/10 disabled:opacity-40"
               >
                 {isSaving ? (
                   <Loader2 size={15} className="animate-spin" />
                 ) : (
                   <Share2 size={15} />
                 )}
-                Save to Supabase & Generate Share Code
+                Save &amp; Generate Share Code (10 Qs)
               </button>
             </div>
           </div>
@@ -1101,7 +1444,8 @@ function ChallengeContent() {
               </div>
 
               <p className="text-xs text-arena-muted leading-relaxed">
-                Send this code or share the direct link with friends. They can enter it in the Challenge tab or click the link to play immediately!
+                This challenge is saved to your profile and will stay available after reload or logout until you delete it.
+                Share the code or direct play link with anyone:
               </p>
 
               <div className="flex flex-col gap-2 pt-2">
@@ -1110,31 +1454,31 @@ function ChallengeContent() {
                     onClick={() => {
                       navigator.clipboard?.writeText(challengeCode);
                       audio.click();
+                      setCopiedCode(challengeCode);
+                      setTimeout(() => setCopiedCode(null), 2500);
                     }}
                     className="arena-btn arena-btn-ghost text-xs flex-1 justify-center"
                   >
-                    <Copy size={14} /> Copy Code
+                    <Copy size={14} />
+                    {copiedCode === challengeCode ? "Code Copied!" : "Copy Code"}
                   </button>
                   <button
-                    onClick={() => {
-                      const origin = typeof window !== "undefined" ? window.location.origin : "";
-                      const directUrl = `${origin}/challenge?code=${challengeCode}`;
-                      navigator.clipboard?.writeText(directUrl);
-                      audio.click();
-                      setCopiedLink(true);
-                      setTimeout(() => setCopiedLink(false), 2500);
-                    }}
+                    onClick={() => copyShareLink(challengeCode)}
                     className="arena-btn arena-btn-primary text-xs flex-1 justify-center"
                   >
-                    {copiedLink ? <CheckCircle2 size={14} className="text-arena-good" /> : <Share2 size={14} />}
-                    {copiedLink ? "Link Copied!" : "Copy Direct Play Link"}
+                    {copiedCode === challengeCode ? (
+                      <CheckCircle2 size={14} className="text-arena-good" />
+                    ) : (
+                      <Share2 size={14} />
+                    )}
+                    {copiedCode === challengeCode ? "Link Copied!" : "Copy Direct Link"}
                   </button>
                 </div>
                 <button
                   onClick={() => setShowShareModal(false)}
                   className="arena-btn arena-btn-ghost text-xs w-full justify-center"
                 >
-                  Close
+                  Done
                 </button>
               </div>
             </motion.div>

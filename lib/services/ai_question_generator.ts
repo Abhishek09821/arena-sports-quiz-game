@@ -8,62 +8,84 @@ export interface GenerateOptions {
   category?: string;
   excludeStems?: string[];
   excludeAnswers?: string[];
+  mode?: "classic" | "challenge" | "sprint" | "multiplayer";
 }
 
 /**
- * Builds the AI system prompt enforcing sports factuality, credible options, and strict JSON format.
+ * Builds the AI system prompt enforcing sports factuality, credible options, strict JSON format,
+ * zero repetition, and strict temporal boundary (1975-2026 only).
  */
 function buildPrompt(options: GenerateOptions): string {
   const { sport, difficulty, count, category, excludeStems, excludeAnswers } = options;
 
-  const sportInstruction =
-    sport === "All Sports"
-      ? `Distribute the ${count} questions evenly across a variety of sports among: Cricket, Football (strictly Association Football / FIFA Soccer, NOT American Football/NFL), Basketball (NBA), Tennis (Grand Slams), Formula 1, Badminton, Hockey (Field Hockey), Athletics.
-STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, the NFL, Super Bowl, quarterbacks, touchdowns, or gridiron under ANY circumstance.`
-      : sport === "Football"
-      ? `All ${count} questions MUST be strictly and exclusively about ASSOCIATION FOOTBALL / FIFA SOCCER (e.g. FIFA World Cup, UEFA Champions League, Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Ballon d'Or, Copa América, UEFA European Championship, and world soccer legends like Lionel Messi, Cristiano Ronaldo, Pelé, Diego Maradona, Kylian Mbappé, Zinedine Zidane, Erling Haaland, Johan Cruyff, Ronaldinho, Pep Guardiola, Sir Alex Ferguson).
-STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, the NFL, the Super Bowl, quarterbacks, touchdowns, field goals, gridiron, or American college football. In this platform, 'Football' means FIFA Association Football / Soccer ONLY! Any question about NFL or American football is invalid and will be rejected.`
-      : `All ${count} questions MUST be about the sport: ${sport}.`;
+  let sportInstruction = "";
+  if (sport === "All Sports") {
+    sportInstruction = `Distribute the ${count} questions across a balanced variety of these 6 sports ONLY:
+1. Cricket (ICC World Cups, IPL, Ashes, T20)
+2. Football (strictly Association Football / FIFA Soccer - Champions League, Premier League, World Cup)
+3. Basketball (NBA Finals, MVP, Olympic Hoops)
+4. Formula 1 (Grand Prix winners, World Drivers' Championship)
+5. WWE/WWF (WrestleMania, Royal Rumble, Attitude Era, WWE Champions)
+6. UFC (Ultimate Fighting Championship, Octagon title fights, MMA legends)
+
+STRICT NEGATIVE CONSTRAINT: Under NO circumstances generate questions about American Football / NFL / Super Bowl. Under NO circumstances generate sports outside these 6.`;
+  } else if (sport === "Football") {
+    sportInstruction = `All ${count} questions MUST be strictly and exclusively about ASSOCIATION FOOTBALL / FIFA SOCCER (e.g. FIFA World Cup, UEFA Champions League, Premier League, La Liga, Serie A, Ballon d'Or, Copa América, Euro Championships, and legends like Lionel Messi, Cristiano Ronaldo, Pelé, Diego Maradona, Kylian Mbappé, Zinedine Zidane, Erling Haaland, Johan Cruyff, Pep Guardiola).
+STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, NFL, Super Bowl, quarterbacks, touchdowns, or gridiron. Any NFL trivia is invalid and rejected.`;
+  } else if (sport === "WWE/WWF") {
+    sportInstruction = `All ${count} questions MUST be strictly and exclusively about WWE / WWF Professional Wrestling (e.g. WrestleMania, Royal Rumble, SummerSlam, Survivor Series, Attitude Era, Ruthless Aggression, modern WWE, and iconic superstars such as Stone Cold Steve Austin, The Rock, The Undertaker, John Cena, Roman Reigns, Shawn Michaels, Triple H, Bret Hart, Hulk Hogan (1980s+), Randy Orton, Brock Lesnar, Cody Rhodes, Seth Rollins, Royal Rumble records, and championship reigns).`;
+  } else if (sport === "UFC") {
+    sportInstruction = `All ${count} questions MUST be strictly and exclusively about UFC (Ultimate Fighting Championship) and MMA (e.g. UFC Numbered Pay-Per-Views, Octagon title fights, Hall of Fame legends like Jon Jones, Khabib Nurmagomedov, Conor McGregor, Georges St-Pierre, Anderson Silva, Amanda Nunes, Israel Adesanya, Alex Pereira, Daniel Cormier, Chuck Liddell, Kamaru Usman, fastest knockouts, submission records, and championship bouts).`;
+  } else if (sport === "Formula 1") {
+    sportInstruction = `All ${count} questions MUST be strictly and exclusively about FORMULA 1 (FIA Formula One World Championship, Grand Prix race winners, World Drivers' and Constructors' Champions, circuits like Monaco, Silverstone, Monza, Spa, and drivers like Lewis Hamilton, Michael Schumacher, Max Verstappen, Ayrton Senna, Alain Prost, Sebastian Vettel, Fernando Alonso, Kimi Räikkönen).`;
+  } else if (sport === "Cricket") {
+    sportInstruction = `All ${count} questions MUST be strictly and exclusively about CRICKET (ICC Men's & Women's Cricket World Cup, ICC T20 World Cup, Indian Premier League / IPL, The Ashes, Test cricket records, and legends like Sachin Tendulkar, Virat Kohli, MS Dhoni, Ricky Ponting, Shane Warne, Brian Lara, Wasim Akram, Rohit Sharma, Jasprit Bumrah, Ben Stokes).`;
+  } else if (sport === "Basketball") {
+    sportInstruction = `All ${count} questions MUST be strictly and exclusively about BASKETBALL (NBA Finals, NBA Playoffs, Regular Season MVPs, All-Stars, Olympic Men's Basketball, and legends like Michael Jordan, LeBron James, Kobe Bryant, Stephen Curry, Shaquille O'Neal, Magic Johnson, Larry Bird, Nikola Jokić, Giannis Antetokounmpo).`;
+  }
 
   let diffInstruction = "";
   if (difficulty === "Easy") {
-    diffInstruction = `DIFFICULTY: EASY (Headline Mainstream Knowledge)
-- Target audience: Casual sports fans. Questions MUST test well-known global champions, famous record holders, iconic milestones, and prominent stars (e.g., Messi winning 2022 World Cup with Argentina, Usain Bolt 100m world record, Michael Jordan with Chicago Bulls, Real Madrid record UCLs).
-- STRICT NEGATIVE CONSTRAINT: DO NOT ask obscure statistics, bench players, minor tournament editions, or deep-cut technical facts. Keep questions approachable and recognizable.`;
+    diffInstruction = `DIFFICULTY: EASY (Mainstream Knowledge)
+- Target: Casual fans. Test famous champions, iconic record holders, legendary milestones (e.g., Messi 2022 World Cup, Undertaker WrestleMania streak, Usain Bolt, Hamilton 7 titles, Jordan Bulls 6 rings).
+- DO NOT ask obscure bench players or minor technical stats.`;
   } else if (difficulty === "Medium") {
-    diffInstruction = `DIFFICULTY: MEDIUM (Regular Sports Fan Knowledge)
-- Target audience: Active sports followers. Questions should test tournament runners-up, Golden Boot / MVP winners, iconic championship scorelines, historic club transfers, famous rivalries, and milestone seasons from major leagues and tournaments.
-- Balance: Questions should require active interest in the sport, but remain notable and verified.`;
+    diffInstruction = `DIFFICULTY: MEDIUM (Active Sports Follower)
+- Target: Active followers. Test tournament runners-up, MVP/Golden Boot winners, championship scorelines, historic transfers, and notable rivalries.`;
   } else if (difficulty === "Hard") {
     diffInstruction = `DIFFICULTY: HARD (Dedicated Sports Enthusiast)
-- Target audience: Die-hard sports followers and season-ticket fans. Questions should test specific tournament years, exact final scorelines, lesser-known champions, tournament host cities, decisive extra-time or penalty shootout moments, and head-to-head records.
-- STRICT NEGATIVE CONSTRAINT: Do NOT ask elementary or trivial questions (e.g. "Who won the 2022 World Cup?" or "How many rings does LeBron James have?").`;
+- Target: Die-hard fans. Test specific tournament editions, exact final scores, host venues, decisive extra-time/shootout moments, and tactical head-to-heads.`;
   } else if (difficulty === "Legendary") {
-    diffInstruction = `DIFFICULTY: LEGENDARY / EXPERT (Sports Historians & Trivia Savants)
-- Target audience: Elite sports trivia masters, archivists, and sports historians. Questions MUST test deep-cut records, rare statistical anomalies, specific player substitutions in historic finals, venue trivia, pre-2000 historical achievements, debut opponents, kit numbers, or obscure tournament regulations.
-- STRICT NEGATIVE CONSTRAINT: ABSOLUTELY FORBIDDEN to generate common-knowledge, widely known, or famous trivia! Any question that an average casual fan knows (like champions of recent World Cups, Messi/Ronaldo generic records, etc.) is STRICTLY INVALID. Every Legendary question must demand genuine deep expertise.`;
+    diffInstruction = `DIFFICULTY: LEGENDARY (Trivia Archivists & Historians)
+- Target: Deep-cut trivia masters. Test rare statistical anomalies, specific player substitutions in historic finals, venue trivia, debut opponents, or obscure regulations.
+- STRICTLY FORBIDDEN to ask common-knowledge or trivial questions.`;
   } else {
     diffInstruction = `DIFFICULTY: MIXED
-- Provide a diverse, balanced mix of questions spanning Easy, Medium, and Hard difficulty levels. Label each question's difficulty field accurately according to its actual depth.`;
+- Provide a balanced mix across Easy, Medium, and Hard difficulty levels. Label each question's difficulty accurately.`;
   }
 
-  const categoryInstruction = category
-    ? `STRICT TOURNAMENT ENFORCEMENT:
-Every question MUST strictly and exclusively test the tournament or topic: "${category}".
-All questions, correct answers, and plausible distractors MUST directly reference matches, champions, finals, iconic players, award winners, goals/wickets, or historic records from "${category}".
-DO NOT generate generic questions or questions from unrelated competitions.
-Set the "category" property of every question to "${category}".`
+  const categoryInstruction = category && category !== "All" && category !== "All Tournaments" && category !== "All Events" && category !== "All Grand Prix"
+    ? `STRICT TOURNAMENT/LEAGUE FOCUS:
+Every question MUST strictly and exclusively focus on: "${category}".
+All questions, correct answers, and plausible distractors MUST directly reference matches, champions, moments, or records from "${category}".
+Set the "category" property of each question to "${category}".`
     : "";
 
   const excludeSection =
     (excludeStems && excludeStems.length > 0) || (excludeAnswers && excludeAnswers.length > 0)
-      ? `\nDO NOT repeat or generate questions similar to the following recent topics/answers:\n- Stems to avoid: ${excludeStems?.slice(0, 30).join(", ") || "None"}\n- Answers to avoid: ${excludeAnswers?.slice(0, 30).join(", ") || "None"}`
+      ? `\nNON-REPETITION CONSTRAINT:
+Do NOT generate questions similar to these recent topics or with these answers:
+- Stems to avoid: ${excludeStems?.slice(0, 40).join("; ") || "None"}
+- Answers to avoid: ${excludeAnswers?.slice(0, 40).join("; ") || "None"}`
       : "";
 
-  return `You are an elite, highly accurate sports trivia engine and tournament archivist.
-Generate exactly ${count} unique, high-quality sports trivia questions based on the following specifications:
+  const randomSeed = `Entropy Seed: ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 
-- Sport: ${sport === "Football" ? "Football (Association Football / FIFA Soccer - NOT American Football/NFL)" : sport}
+  return `You are the world's leading sports trivia archivist and competition historian.
+Generate exactly ${count} unique, factually verified sports trivia questions adhering strictly to these specifications:
+
+SPECIFICATIONS:
+- Target Sport: ${sport}
 - Target Difficulty: ${difficulty}
 ${sportInstruction}
 
@@ -71,29 +93,35 @@ ${diffInstruction}
 
 ${categoryInstruction}
 ${excludeSection}
+${randomSeed}
 
-CRITICAL QUALITY & ACCURACY RULES:
-1. FACTUAL ACCURACY: Never fabricate player records, tournament scores, winners, or match stats. Use only verified official sports history and records from 1950 to 2026.
-2. FOOTBALL / SOCCER DEFINITION: "Football" strictly and universally means Association Football / FIFA Soccer (World Cup, UEFA Champions League, Premier League, La Liga, Serie A, Ballon d'Or, Copa América, Euro Championships, etc.). NEVER generate questions about American Football, NFL, Super Bowl, quarterbacks, or touchdowns under any circumstances.
-3. PLAUSIBLE OPTIONS: Every question must have EXACTLY 4 options. All 4 options must be credible, plausible peers of the same category (e.g., if the answer is a famous footballer, all other 3 options MUST be famous footballers from similar eras; NEVER insert silly or unrelated distractors).
-4. RANDOMIZE ANSWER POSITION: The correct answer must NOT always be option 0 (A). Distribute correct answers across all positions (A, B, C, D).
-5. EXPLANATION: Provide a concise, informative 1-2 sentence explanation citing the tournament, year, or record.
-6. NO AMBIGUOUS FACTS: Avoid controversial, subjective, or trivia with disputed answers.
-7. NO DUPLICATES: All questions in this set must be distinct and non-overlapping.
+STRICT TEMPORAL RULES (CRITICAL):
+1. ALL TRIVIA MUST BE BETWEEN 1975 AND 2026:
+   - Every question MUST refer to matches, champions, records, fights, or events that occurred between 1975 and 2026.
+   - ABSOLUTELY NO questions from before 1975 (no 1930s, 1950s, 1960s, or early 1970s). Any pre-1975 question will be strictly rejected.
+   - ACTIVELY INCLUDE modern events from the 2020s (2020, 2021, 2022, 2023, 2024, 2025, 2026).
+   - The "year" field must be an integer between 1975 and 2026.
+
+QUALITY & VERIFICATION RULES:
+2. FACTUAL ACCURACY: Never hallucinate or guess scores, winners, or stats. Use only 100% verified historical facts.
+3. 4 PLAUSIBLE OPTIONS: Exactly 4 options per question. All 4 must be plausible peers of the exact same category and era.
+4. UNBIASED POSITION: The correct answer must be naturally distributed among options (do NOT place answer at option 0 / A every time).
+5. CONCISE EXPLANATION: 1-2 sentence explanation citing the year, tournament, and key context.
+6. NO DUPLICATES: Every question in this batch must be distinct.
 
 OUTPUT FORMAT:
-Respond ONLY with a valid JSON array of objects. Do not include markdown wrappers (such as \`\`\`json), explanations, or notes outside the JSON array.
-Each object in the array must strictly have these fields:
+Respond ONLY with a valid JSON array of objects. Do not include markdown wraps (like \`\`\`json) or extra text.
+Each object must have these exact keys:
 [
   {
-    "sport": "Cricket",
+    "sport": "${sport === "All Sports" ? "Cricket" : sport}",
     "difficulty": "Medium",
-    "category": "World Cup Records",
-    "year": 2011,
-    "question": "Which player won the Player of the Tournament award in the 2011 ICC Cricket World Cup?",
-    "options": ["Sachin Tendulkar", "Yuvraj Singh", "Kumar Sangakkara", "Tillakaratne Dilshan"],
-    "answer": "Yuvraj Singh",
-    "explanation": "Yuvraj Singh scored 362 runs and took 15 wickets to be named Player of the Tournament."
+    "category": "${category || "Sports Records"}",
+    "year": 2022,
+    "question": "Which player won the Player of the Tournament award in the 2022 ICC Men's T20 World Cup?",
+    "options": ["Sam Curran", "Virat Kohli", "Jos Buttler", "Shaheen Afridi"],
+    "answer": "Sam Curran",
+    "explanation": "Sam Curran took 13 wickets in the tournament and was named Player of the Tournament as England won the title."
   }
 ]`;
 }
@@ -103,14 +131,12 @@ Each object in the array must strictly have these fields:
  */
 function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
   let cleaned = rawText.trim();
-  // Strip code fences if present
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, "");
     cleaned = cleaned.replace(/\s*```$/, "");
   }
   cleaned = cleaned.trim();
 
-  // Find array start and end
   const firstBracket = cleaned.indexOf("[");
   const lastBracket = cleaned.lastIndexOf("]");
   if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
@@ -125,7 +151,7 @@ function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
 }
 
 /**
- * Generate questions via Google Gemini REST API
+ * Generate questions via Google Gemini REST API (Primary for Classic & Challenge modes)
  */
 async function generateViaGemini(options: GenerateOptions, apiKey: string, model: string): Promise<RawGeneratedQuestion[]> {
   const prompt = buildPrompt(options);
@@ -159,7 +185,7 @@ async function generateViaGemini(options: GenerateOptions, apiKey: string, model
 }
 
 /**
- * Generate questions via Groq / OpenAI compatible REST API
+ * Generate questions via Groq / xAI / OpenAI-compatible REST API (Primary for 1v1 & 60s Blitz modes)
  */
 async function generateViaOpenAICompatible(
   options: GenerateOptions,
@@ -180,12 +206,11 @@ async function generateViaOpenAICompatible(
       messages: [
         {
           role: "system",
-          content: "You are an expert sports trivia generator that outputs ONLY valid JSON arrays.",
+          content: "You are an expert sports trivia engine. You output ONLY valid JSON arrays containing sports trivia question objects. Never include markdown code fences or conversational text.",
         },
         { role: "user", content: prompt },
       ],
-      temperature: 0.7,
-      response_format: { type: "json_object" },
+      temperature: 0.65,
     }),
   });
 
@@ -200,7 +225,6 @@ async function generateViaOpenAICompatible(
     throw new Error("AI returned empty content.");
   }
 
-  // Handle cases where response_format wrapped array in an object
   try {
     return parseAIJsonResponse(content);
   } catch {
@@ -214,78 +238,68 @@ async function generateViaOpenAICompatible(
 }
 
 /**
- * High quality curated sports trivia fallback engine.
- * Guarantees zero failures and accurate facts when no external API key is configured or when offline.
+ * High-quality curated sports trivia fallback engine for the 6 core sports.
+ * Strictly 1975-2026. Guarantees zero failures and accurate facts.
  */
 function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuestion[] {
   const sports = options.sport === "All Sports" ? [...SPORT_LIST] : [options.sport];
   const targetDiff = options.difficulty;
   const count = options.count;
 
-  // Curated sports trivia facts matrix with balanced difficulties
+  // Curated sports trivia facts matrix strictly between 1975 and 2026 for all 6 sports
   const factsBank: Record<Sport, Array<{ q: string; opts: [string, string, string, string]; a: string; exp: string; diff: Difficulty; yr: number }>> = {
     Cricket: [
-      { q: "Who scored the fastest century in Men's One Day International cricket (in 31 balls)?", opts: ["AB de Villiers", "Corey Anderson", "Shahid Afridi", "Chris Gayle"], a: "AB de Villiers", exp: "AB de Villiers struck a 31-ball century against the West Indies in Johannesburg in 2015.", diff: "Easy", yr: 2015 },
-      { q: "Who captained India to victory in the inaugural 2007 ICC World Twenty20?", opts: ["MS Dhoni", "Rahul Dravid", "Sourav Ganguly", "Yuvraj Singh"], a: "MS Dhoni", exp: "MS Dhoni led a young Indian team to defeat Pakistan in the Johannesburg final.", diff: "Easy", yr: 2007 },
-      { q: "Who holds the record for highest individual score in Test match cricket with 400 not out?", opts: ["Brian Lara", "Matthew Hayden", "Don Bradman", "Virender Sehwag"], a: "Brian Lara", exp: "Brian Lara scored 400 not out against England at St John's, Antigua in 2004.", diff: "Easy", yr: 2004 },
-      { q: "Which team won the 2019 ICC Men's Cricket World Cup by boundary countback?", opts: ["England", "New Zealand", "Australia", "India"], a: "England", exp: "England and New Zealand tied both the match and Super Over at Lord's.", diff: "Medium", yr: 2019 },
-      { q: "Which country hosted the first official Men's Cricket World Cup in 1975?", opts: ["England", "Australia", "West Indies", "South Africa"], a: "England", exp: "England hosted the inaugural Prudential World Cup in June 1975.", diff: "Medium", yr: 1975 },
-      { q: "Who was the Man of the Match in the 1999 ICC Men's Cricket World Cup Final at Lord's?", opts: ["Shane Warne", "Glenn McGrath", "Adam Gilchrist", "Steve Waugh"], a: "Shane Warne", exp: "Shane Warne took 4 wickets for 33 runs as Australia bowled out Pakistan for 132.", diff: "Hard", yr: 1999 },
-      { q: "Which bowler took 10 wickets in a single Test innings against England at Old Trafford in 1956?", opts: ["Jim Laker", "Anil Kumble", "Ajaz Patel", "Shane Warne"], a: "Jim Laker", exp: "Jim Laker took 10 for 53 in the second innings and 19 wickets in the match.", diff: "Hard", yr: 1956 },
-      { q: "Who was the only bowler to take 4 wickets in 4 consecutive balls in a Men's Cricket World Cup match?", opts: ["Lasith Malinga", "Wasim Akram", "Chaminda Vaas", "Brett Lee"], a: "Lasith Malinga", exp: "Lasith Malinga took 4 in 4 against South Africa at Providence Stadium, Guyana in the 2007 World Cup.", diff: "Legendary", yr: 2007 },
-      { q: "Against which country and at which venue did Sachin Tendulkar score his 100th international hundred in 2012?", opts: ["Bangladesh at Mirpur", "Sri Lanka at Colombo", "England at The Oval", "Pakistan at Kolkata"], a: "Bangladesh at Mirpur", exp: "Tendulkar reached his historic century of centuries scoring 114 against Bangladesh at the Sher-e-Bangla Stadium in Mirpur.", diff: "Legendary", yr: 2012 },
+      { q: "Who scored the fastest century in Men's ODI cricket history (off just 31 balls)?", opts: ["AB de Villiers", "Corey Anderson", "Shahid Afridi", "Chris Gayle"], a: "AB de Villiers", exp: "AB de Villiers struck a 31-ball hundred against West Indies in Johannesburg in 2015.", diff: "Easy", yr: 2015 },
+      { q: "Who captained India to their historic victory in the inaugural 2007 ICC World Twenty20?", opts: ["MS Dhoni", "Rahul Dravid", "Sourav Ganguly", "Yuvraj Singh"], a: "MS Dhoni", exp: "MS Dhoni led India to defeat Pakistan in the Johannesburg final in 2007.", diff: "Easy", yr: 2007 },
+      { q: "Who holds the record for the highest individual score in Test match cricket with 400 not out?", opts: ["Brian Lara", "Matthew Hayden", "Don Bradman", "Virender Sehwag"], a: "Brian Lara", exp: "Brian Lara scored 400* against England in Antigua in 2004.", diff: "Easy", yr: 2004 },
+      { q: "Which team won the 2019 ICC Men's Cricket World Cup final at Lord's on boundary countback?", opts: ["England", "New Zealand", "Australia", "India"], a: "England", exp: "England won following a tied match and tied Super Over against New Zealand.", diff: "Medium", yr: 2019 },
+      { q: "Which nation won the inaugural ICC Men's Cricket World Cup held in England in 1975?", opts: ["West Indies", "Australia", "England", "Pakistan"], a: "West Indies", exp: "Clive Lloyd led the West Indies to victory over Australia in the 1975 final at Lord's.", diff: "Medium", yr: 1975 },
+      { q: "Who was the Man of the Match in the 1999 ICC Men's Cricket World Cup Final at Lord's?", opts: ["Shane Warne", "Glenn McGrath", "Adam Gilchrist", "Steve Waugh"], a: "Shane Warne", exp: "Shane Warne took 4 for 33 as Australia bowled Pakistan out for 132 in 1999.", diff: "Hard", yr: 1999 },
+      { q: "Who was the only bowler to take 4 wickets in 4 consecutive balls in a Men's Cricket World Cup match?", opts: ["Lasith Malinga", "Wasim Akram", "Chaminda Vaas", "Brett Lee"], a: "Lasith Malinga", exp: "Lasith Malinga took 4 in 4 against South Africa in the 2007 World Cup in Guyana.", diff: "Legendary", yr: 2007 },
+      { q: "Against which team and at which venue did Sachin Tendulkar score his 100th international century in 2012?", opts: ["Bangladesh at Mirpur", "Sri Lanka at Colombo", "England at The Oval", "Australia at Sydney"], a: "Bangladesh at Mirpur", exp: "Tendulkar achieved his historic 100th international century in 2012 against Bangladesh at Sher-e-Bangla Stadium.", diff: "Legendary", yr: 2012 },
     ],
     Football: [
-      { q: "Which national team won the FIFA World Cup in 2022 in Qatar?", opts: ["Argentina", "France", "Croatia", "Brazil"], a: "Argentina", exp: "Argentina defeated France 4-2 on penalties following a thrilling 3-3 draw.", diff: "Easy", yr: 2022 },
+      { q: "Which national team won the 2022 FIFA World Cup in Qatar?", opts: ["Argentina", "France", "Croatia", "Morocco"], a: "Argentina", exp: "Argentina defeated France 4-2 on penalties following an epic 3-3 draw.", diff: "Easy", yr: 2022 },
       { q: "Who is the all-time leading goalscorer in UEFA Champions League history?", opts: ["Cristiano Ronaldo", "Lionel Messi", "Robert Lewandowski", "Karim Benzema"], a: "Cristiano Ronaldo", exp: "Cristiano Ronaldo has scored 140 goals in the UEFA Champions League.", diff: "Easy", yr: 2023 },
-      { q: "Which club went an entire 38-game Premier League season undefeated in 2003-04?", opts: ["Arsenal", "Manchester United", "Chelsea", "Liverpool"], a: "Arsenal", exp: "Arsène Wenger's Arsenal 'Invincibles' won 26 and drew 12 matches.", diff: "Easy", yr: 2004 },
-      { q: "Which country won the UEFA European Championship in 2004 in a historic upset?", opts: ["Greece", "Portugal", "Czech Republic", "Netherlands"], a: "Greece", exp: "Greece defeated tournament hosts Portugal 1-0 in Lisbon.", diff: "Medium", yr: 2004 },
-      { q: "Who won the Ballon d'Or in 2018, breaking a decade of Messi-Ronaldo dominance?", opts: ["Luka Modrić", "Antoine Griezmann", "Kylian Mbappé", "Mohamed Salah"], a: "Luka Modrić", exp: "Luka Modrić won after leading Croatia to the World Cup final and winning the UCL with Real Madrid.", diff: "Medium", yr: 2018 },
+      { q: "Which club completed an entire 38-game Premier League season undefeated in 2003-04?", opts: ["Arsenal", "Manchester United", "Chelsea", "Liverpool"], a: "Arsenal", exp: "Arsène Wenger's Arsenal 'Invincibles' went unbeaten throughout the 2003-04 league campaign.", diff: "Easy", yr: 2004 },
+      { q: "Which country won the UEFA Euro 2004 tournament in one of the biggest upsets in football history?", opts: ["Greece", "Portugal", "Czech Republic", "Netherlands"], a: "Greece", exp: "Greece defeated tournament hosts Portugal 1-0 in Lisbon to win Euro 2004.", diff: "Medium", yr: 2004 },
+      { q: "Who won the Ballon d'Or in 2018, snapping a 10-year duopoly by Messi and Ronaldo?", opts: ["Luka Modrić", "Antoine Griezmann", "Kylian Mbappé", "Mohamed Salah"], a: "Luka Modrić", exp: "Luka Modrić won after winning the Champions League and leading Croatia to the World Cup final.", diff: "Medium", yr: 2018 },
       { q: "Which referee officiated the 2010 FIFA World Cup Final between Spain and the Netherlands, issuing 14 yellow cards?", opts: ["Howard Webb", "Pierluigi Collina", "Nicola Rizzoli", "Mark Clattenburg"], a: "Howard Webb", exp: "English referee Howard Webb officiated the fiery 2010 final in Johannesburg.", diff: "Hard", yr: 2010 },
-      { q: "Who scored the winning golden goal for France against Italy in extra time of the UEFA Euro 2000 final?", opts: ["David Trezeguet", "Sylvain Wiltord", "Zinedine Zidane", "Thierry Henry"], a: "David Trezeguet", exp: "David Trezeguet struck a blistering half-volley in the 103rd minute in Rotterdam.", diff: "Hard", yr: 2000 },
-      { q: "Who is the only player to have scored a hat-trick in the Premier League, UEFA Champions League, and FA Cup in the same season (2009-10)?", opts: ["Yossi Benayoun", "Fernando Torres", "Didier Drogba", "Wayne Rooney"], a: "Yossi Benayoun", exp: "Israeli midfielder Yossi Benayoun achieved this rare treble of hat-tricks for Liverpool in 2009-10.", diff: "Legendary", yr: 2010 },
-      { q: "Who scored Cameroon's iconic winning header against defending champions Argentina in the opening match of the 1990 World Cup?", opts: ["François Omam-Biyik", "Roger Milla", "Cyrille Makanaky", "Stephen Tataw"], a: "François Omam-Biyik", exp: "François Omam-Biyik scored in the 67th minute at the San Siro in Milan as 9-man Cameroon shocked Argentina 1-0.", diff: "Legendary", yr: 1990 },
+      { q: "Who scored the winning golden goal for France in the 103rd minute of the UEFA Euro 2000 final against Italy?", opts: ["David Trezeguet", "Sylvain Wiltord", "Zinedine Zidane", "Thierry Henry"], a: "David Trezeguet", exp: "David Trezeguet struck the volley in extra time in Rotterdam.", diff: "Hard", yr: 2000 },
+      { q: "Who is the only player to score hat-tricks in the Premier League, Champions League, and FA Cup in the 2009-10 season?", opts: ["Yossi Benayoun", "Fernando Torres", "Didier Drogba", "Wayne Rooney"], a: "Yossi Benayoun", exp: "Yossi Benayoun achieved this rare treble of hat-tricks for Liverpool in 2009-10.", diff: "Legendary", yr: 2010 },
     ],
     Basketball: [
-      { q: "Which NBA player scored 100 points in a single game in March 1962?", opts: ["Wilt Chamberlain", "Bill Russell", "Kareem Abdul-Jabbar", "Elgin Baylor"], a: "Wilt Chamberlain", exp: "Wilt Chamberlain scored 100 points for the Philadelphia Warriors against the Knicks in Hershey, Pennsylvania.", diff: "Easy", yr: 1962 },
-      { q: "Who became the NBA's all-time leading regular season scorer in February 2023?", opts: ["LeBron James", "Kareem Abdul-Jabbar", "Karl Malone", "Kobe Bryant"], a: "LeBron James", exp: "LeBron James surpassed Kareem Abdul-Jabbar's 38,387 career points.", diff: "Easy", yr: 2023 },
-      { q: "Which country defeated the USA men's basketball team in the semi-finals of the 2004 Athens Olympics?", opts: ["Argentina", "Lithuania", "Spain", "Italy"], a: "Argentina", exp: "Manu Ginobili led Argentina to an 89-81 victory over Team USA before claiming Olympic Gold.", diff: "Medium", yr: 2004 },
-      { q: "Which player scored 8 points in 9 seconds to lead the Indiana Pacers to an improbable playoff victory over the Knicks in 1995?", opts: ["Reggie Miller", "Rik Smits", "Mark Jackson", "Dale Davis"], a: "Reggie Miller", exp: "Reggie Miller hit two 3-pointers and two free throws in 8.9 seconds at Madison Square Garden.", diff: "Hard", yr: 1995 },
-      { q: "Who is the only player in NBA history to win the Finals MVP award despite playing for the losing team?", opts: ["Jerry West", "LeBron James", "Wilt Chamberlain", "Magic Johnson"], a: "Jerry West", exp: "Jerry West won the inaugural Finals MVP in 1969 despite the LA Lakers losing Game 7 to the Boston Celtics.", diff: "Legendary", yr: 1969 },
-      { q: "Which team originally drafted Dirk Nowitzki with the 9th overall pick in the 1998 NBA draft before trading him to Dallas?", opts: ["Milwaukee Bucks", "Boston Celtics", "Denver Nuggets", "Golden State Warriors"], a: "Milwaukee Bucks", exp: "The Milwaukee Bucks drafted Nowitzki in 1998 and traded him on draft night to the Mavericks for Robert Traylor.", diff: "Legendary", yr: 1998 },
-    ],
-    Tennis: [
-      { q: "Who has won the most Men's Grand Slam singles titles in the Open Era?", opts: ["Novak Djokovic", "Rafael Nadal", "Roger Federer", "Pete Sampras"], a: "Novak Djokovic", exp: "Novak Djokovic has won 24 Grand Slam men's singles titles.", diff: "Easy", yr: 2023 },
-      { q: "How many French Open men's singles titles did Rafael Nadal win at Roland Garros?", opts: ["14", "12", "15", "10"], a: "14", exp: "Rafael Nadal won a historic 14 French Open titles between 2005 and 2022.", diff: "Easy", yr: 2022 },
-      { q: "Which female player completed the calendar 'Golden Slam' (all 4 Grand Slam singles titles + Olympic Gold in 1988)?", opts: ["Steffi Graf", "Serena Williams", "Martina Navratilova", "Margaret Court"], a: "Steffi Graf", exp: "Steffi Graf achieved the historic Golden Slam in 1988 at just 19 years old.", diff: "Medium", yr: 1988 },
-      { q: "Which unseeded male player won the 2001 Wimbledon singles championship as a wildcard entrant?", opts: ["Goran Ivanišević", "Patrick Rafter", "Tim Henman", "Marat Safin"], a: "Goran Ivanišević", exp: "Ranked 125th, Goran Ivanišević entered on a wildcard and defeated Patrick Rafter in a Monday final.", diff: "Hard", yr: 2001 },
-      { q: "Who defeated Roger Federer in the 2009 US Open final, snapping Federer's streak of 5 consecutive titles at Flushing Meadows?", opts: ["Juan Martín del Potro", "Novak Djokovic", "Rafael Nadal", "Andy Murray"], a: "Juan Martín del Potro", exp: "20-year-old Juan Martín del Potro won in five sets (3-6, 7-6, 4-6, 7-6, 6-2).", diff: "Legendary", yr: 2009 },
-      { q: "How many games were played in the fifth set of the historic Isner–Mahut match at Wimbledon 2010?", opts: ["138 games (70-68)", "122 games (62-60)", "104 games (53-51)", "96 games (49-47)"], a: "138 games (70-68)", exp: "John Isner defeated Nicolas Mahut 70-68 in the final set after 11 hours and 5 minutes of play.", diff: "Legendary", yr: 2010 },
+      { q: "Who became the NBA's all-time leading regular season scorer in February 2023, surpassing Kareem Abdul-Jabbar?", opts: ["LeBron James", "Michael Jordan", "Kobe Bryant", "Karl Malone"], a: "LeBron James", exp: "LeBron James passed Kareem's 38,387 career points in February 2023.", diff: "Easy", yr: 2023 },
+      { q: "Which NBA franchise won 73 regular-season games in 2015-16, setting the all-time single-season record?", opts: ["Golden State Warriors", "Chicago Bulls", "San Antonio Spurs", "Miami Heat"], a: "Golden State Warriors", exp: "The Golden State Warriors finished the 2015-16 regular season with a 73-9 record.", diff: "Easy", yr: 2016 },
+      { q: "Which country defeated Team USA in the semi-finals of men's basketball at the 2004 Athens Olympics?", opts: ["Argentina", "Lithuania", "Spain", "Italy"], a: "Argentina", exp: "Manu Ginobili led Argentina to an 89-81 victory on their way to Olympic Gold.", diff: "Medium", yr: 2004 },
+      { q: "Which player scored 8 points in 9 seconds to lead the Indiana Pacers to a shock playoff win over the Knicks in 1995?", opts: ["Reggie Miller", "Rik Smits", "Mark Jackson", "Dale Davis"], a: "Reggie Miller", exp: "Reggie Miller hit two 3-pointers and two free throws in 8.9 seconds at Madison Square Garden.", diff: "Hard", yr: 1995 },
+      { q: "Which team originally drafted Dirk Nowitzki with the 9th overall pick in 1998 before trading him to Dallas?", opts: ["Milwaukee Bucks", "Boston Celtics", "Denver Nuggets", "Golden State Warriors"], a: "Milwaukee Bucks", exp: "The Bucks drafted Dirk Nowitzki in 1998 and traded him to Dallas for Robert Traylor.", diff: "Legendary", yr: 1998 },
+      { q: "Who won the NBA Finals MVP in 2004 when the Detroit Pistons upset the Los Angeles Lakers 4-1?", opts: ["Chauncey Billups", "Ben Wallace", "Rip Hamilton", "Rasheed Wallace"], a: "Chauncey Billups", exp: "Chauncey Billups averaged 21 points and 5.2 assists to claim the 2004 Finals MVP.", diff: "Hard", yr: 2004 },
     ],
     "Formula 1": [
-      { q: "Which driver holds the record for most race wins in a single Formula 1 season (19 wins in 2023)?", opts: ["Max Verstappen", "Lewis Hamilton", "Michael Schumacher", "Sebastian Vettel"], a: "Max Verstappen", exp: "Max Verstappen won 19 out of 22 Grands Prix during the 2023 season.", diff: "Easy", yr: 2023 },
-      { q: "Which team won the 2009 Formula 1 Constructors' Championship in their only year of existence?", opts: ["Brawn GP", "Red Bull Racing", "Toyota Racing", "Honda Racing"], a: "Brawn GP", exp: "Brawn GP won both the Drivers' (Jenson Button) and Constructors' Championships in 2009.", diff: "Medium", yr: 2009 },
-      { q: "Who won the rain-soaked 2008 Italian Grand Prix at Monza, becoming the youngest Grand Prix winner at the time?", opts: ["Sebastian Vettel", "Lewis Hamilton", "Fernando Alonso", "Robert Kubica"], a: "Sebastian Vettel", exp: "21-year-old Sebastian Vettel scored a sensational victory driving for Scuderia Toro Rosso.", diff: "Hard", yr: 2008 },
-      { q: "Who was the last driver to win the Formula 1 World Drivers' Championship driving for Scuderia Ferrari in 2007?", opts: ["Kimi Räikkönen", "Felipe Massa", "Fernando Alonso", "Michael Schumacher"], a: "Kimi Räikkönen", exp: "Kimi Räikkönen clinched the 2007 title by a single point over Lewis Hamilton and Fernando Alonso in Brazil.", diff: "Legendary", yr: 2007 },
-      { q: "At which British circuit did Ayrton Senna produce his legendary wet-weather opening lap overtaking 4 cars to lead in 1993?", opts: ["Donington Park", "Silverstone", "Brands Hatch", "Aintree"], a: "Donington Park", exp: "Ayrton Senna drove the 'Lap of the Gods' at the 1993 European Grand Prix at Donington Park.", diff: "Legendary", yr: 1993 },
+      { q: "Which driver holds the record for most race victories in a single Formula 1 season (19 wins in 2023)?", opts: ["Max Verstappen", "Lewis Hamilton", "Michael Schumacher", "Sebastian Vettel"], a: "Max Verstappen", exp: "Max Verstappen won 19 of 22 Grands Prix in a dominant 2023 campaign.", diff: "Easy", yr: 2023 },
+      { q: "Which team won both the Drivers' and Constructors' Championships in 2009 in their only season of existence?", opts: ["Brawn GP", "Red Bull Racing", "Toyota Racing", "BMW Sauber"], a: "Brawn GP", exp: "Ross Brawn's team won both titles with Jenson Button in 2009 before becoming Mercedes.", diff: "Medium", yr: 2009 },
+      { q: "Who won the wet 2008 Italian Grand Prix at Monza for Toro Rosso, becoming the youngest race winner at the time?", opts: ["Sebastian Vettel", "Lewis Hamilton", "Fernando Alonso", "Robert Kubica"], a: "Sebastian Vettel", exp: "21-year-old Sebastian Vettel scored an incredible wet-weather maiden victory.", diff: "Hard", yr: 2008 },
+      { q: "Who was the last driver to win the Formula 1 World Drivers' Championship driving for Scuderia Ferrari?", opts: ["Kimi Räikkönen", "Felipe Massa", "Fernando Alonso", "Sebastian Vettel"], a: "Kimi Räikkönen", exp: "Kimi Räikkönen won the 2007 title for Ferrari by a single point over Hamilton and Alonso.", diff: "Legendary", yr: 2007 },
+      { q: "At which British circuit did Ayrton Senna produce his iconic wet-weather opening lap overtaking 4 cars in 1993?", opts: ["Donington Park", "Silverstone", "Brands Hatch", "Aintree"], a: "Donington Park", exp: "Senna's legendary 'Lap of the Gods' occurred at the 1993 European Grand Prix at Donington.", diff: "Legendary", yr: 1993 },
     ],
-    Badminton: [
-      { q: "Who won back-to-back Men's Singles Olympic Gold medals in badminton in 2008 and 2012?", opts: ["Lin Dan", "Lee Chong Wei", "Chen Long", "Taufik Hidayat"], a: "Lin Dan", exp: "China's Lin Dan won Olympic gold at Beijing 2008 and London 2012.", diff: "Easy", yr: 2012 },
-      { q: "Who became India's first BWF World Badminton Champion by winning women's singles gold in 2019?", opts: ["PV Sindhu", "Saina Nehwal", "Prakash Padukone", "Srikanth Kidambi"], a: "PV Sindhu", exp: "PV Sindhu defeated Nozomi Okuhara 21-7, 21-7 in Basel to win the World Championship.", diff: "Medium", yr: 2019 },
-      { q: "Which nation swept all 5 gold medals across Men's, Women's, and Doubles badminton at the London 2012 Olympics?", opts: ["China", "Indonesia", "South Korea", "Japan"], a: "China", exp: "China made a clean sweep of all five badminton golds at London 2012.", diff: "Hard", yr: 2012 },
-      { q: "Who was the first European player to win the Men's Singles Olympic Badminton Gold at Atlanta 1996?", opts: ["Poul-Erik Høyer Larsen", "Peter Gade", "Viktor Axelsen", "Morten Frost"], a: "Poul-Erik Høyer Larsen", exp: "Denmark's Poul-Erik Høyer Larsen defeated Dong Jiong in Atlanta to win Europe's first Olympic badminton gold.", diff: "Legendary", yr: 1996 },
+    "WWE/WWF": [
+      { q: "Who famously ended The Undertaker's 21-0 WrestleMania undefeated streak at WrestleMania XXX in 2014?", opts: ["Brock Lesnar", "Roman Reigns", "John Cena", "Triple H"], a: "Brock Lesnar", exp: "Brock Lesnar defeated The Undertaker at WrestleMania XXX in New Orleans, shocking the wrestling world.", diff: "Easy", yr: 2014 },
+      { q: "Which WWE superstar won back-to-back Royal Rumble matches in 1997 and 1998 during the start of the Attitude Era?", opts: ["Stone Cold Steve Austin", "The Rock", "Shawn Michaels", "Mankind"], a: "Stone Cold Steve Austin", exp: "Stone Cold Steve Austin won the Royal Rumble in 1997, 1998, and later 2001 (a record 3 wins).", diff: "Easy", yr: 1998 },
+      { q: "Which iconic match featured Mankind being thrown off the top of the Hell in a Cell structure by The Undertaker?", opts: ["King of the Ring 1998", "WrestleMania XIV", "SummerSlam 1998", "Royal Rumble 1999"], a: "King of the Ring 1998", exp: "Mick Foley fell through the announce table at King of the Ring in Pittsburgh in June 1998.", diff: "Medium", yr: 1998 },
+      { q: "Who defeated Shawn Michaels in a Career vs Streak match at WrestleMania XXVI in 2010, forcing Michaels into retirement?", opts: ["The Undertaker", "Triple H", "John Cena", "Batista"], a: "The Undertaker", exp: "The Undertaker defeated Shawn Michaels in Arizona to end HBK's in-ring career.", diff: "Medium", yr: 2010 },
+      { q: "At which WrestleMania did 'Stone Cold' Steve Austin face The Rock in their historic trilogy finale in 2003?", opts: ["WrestleMania XIX", "WrestleMania X-Seven", "WrestleMania XV", "WrestleMania XX"], a: "WrestleMania XIX", exp: "The Rock defeated Austin at WrestleMania XIX in Seattle in Austin's final match for 19 years.", diff: "Hard", yr: 2003 },
+      { q: "Who was the longest-reigning modern WWE Champion of the 21st century, holding the Universal Title for 1,316 days?", opts: ["Roman Reigns", "Brock Lesnar", "CM Punk", "John Cena"], a: "Roman Reigns", exp: "Roman Reigns held the championship from Payback 2020 until WrestleMania XL in April 2024.", diff: "Hard", yr: 2024 },
+      { q: "Who won the first-ever Men's Royal Rumble match held in Hamilton, Ontario in January 1988?", opts: ["'Hacksaw' Jim Duggan", "One Man Gang", "Bret Hart", "Don Muraco"], a: "'Hacksaw' Jim Duggan", exp: "Jim Duggan eliminated One Man Gang to win the inaugural 20-man Royal Rumble in 1988.", diff: "Legendary", yr: 1988 },
     ],
-    Hockey: [
-      { q: "Which nation has won the most Men's Olympic Field Hockey gold medals (8 golds)?", opts: ["India", "Germany", "Australia", "Netherlands"], a: "India", exp: "India has won 8 Olympic Gold medals in men's field hockey (1928–1980).", diff: "Easy", yr: 1980 },
-      { q: "Which country won the 2023 Men's FIH Hockey World Cup held in Odisha, India?", opts: ["Germany", "Belgium", "Netherlands", "Australia"], a: "Germany", exp: "Germany defeated Belgium in a shootout to win the 2023 World Cup.", diff: "Medium", yr: 2023 },
-      { q: "Who scored the winning golden goal for Australia against the Netherlands in the 2004 Athens Men's Olympic Final?", opts: ["Jamie Dwyer", "Mark Knowles", "Michael McCann", "Brent Livermore"], a: "Jamie Dwyer", exp: "Jamie Dwyer scored in extra time to give Australia its historic first Olympic men's hockey gold.", diff: "Hard", yr: 2004 },
-      { q: "Which nation won the inaugural Men's FIH Hockey World Cup held in Barcelona in 1971?", opts: ["Pakistan", "India", "Spain", "Netherlands"], a: "Pakistan", exp: "Pakistan defeated hosts Spain 1-0 in the final to win the inaugural 1971 World Cup.", diff: "Legendary", yr: 1971 },
-    ],
-    Athletics: [
-      { q: "What is Usain Bolt's men's 100 metres world record time set in Berlin in 2009?", opts: ["9.58 seconds", "9.63 seconds", "9.69 seconds", "9.72 seconds"], a: "9.58 seconds", exp: "Usain Bolt ran 9.58s on August 16, 2009 at the World Championships in Berlin.", diff: "Easy", yr: 2009 },
-      { q: "Who holds the men's long jump world record of 8.95 metres set in Tokyo in 1991?", opts: ["Mike Powell", "Bob Beamon", "Carl Lewis", "Dwight Phillips"], a: "Mike Powell", exp: "Mike Powell broke Bob Beamon's 23-year-old record at the 1991 World Championships in Tokyo.", diff: "Medium", yr: 1991 },
-      { q: "In which Swedish city did Jonathan Edwards set the men's triple jump world record of 18.29m in 1995?", opts: ["Gothenburg", "Stockholm", "Malmö", "Uppsala"], a: "Gothenburg", exp: "Jonathan Edwards broke the world record twice in the same competition in Gothenburg, Sweden.", diff: "Hard", yr: 1995 },
-      { q: "Who held the men's pole vault world record of 6.14m for 20 years from 1994 until Renaud Lavillenie broke it in 2014?", opts: ["Sergey Bubka", "Maksim Tarasov", "Jeff Hartwig", "Brad Walker"], a: "Sergey Bubka", exp: "Sergey Bubka vaulted 6.14m outdoors in Sestriere, Italy in July 1994.", diff: "Legendary", yr: 1994 },
+    UFC: [
+      { q: "Who holds the record for the fastest knockout in UFC history, finishing Ben Askren in just 5 seconds in 2019?", opts: ["Jorge Masvidal", "Conor McGregor", "Duane Ludwig", "Francis Ngannou"], a: "Jorge Masvidal", exp: "Jorge Masvidal landed a flying knee at UFC 239 in July 2019 to score a 5-second knockout.", diff: "Easy", yr: 2019 },
+      { q: "Which UFC fighter became the first simultaneous two-division champion by knocking out Eddie Alvarez at UFC 205 in 2016?", opts: ["Conor McGregor", "Daniel Cormier", "Henry Cejudo", "Amanda Nunes"], a: "Conor McGregor", exp: "Conor McGregor captured the Lightweight title at Madison Square Garden to hold both 145 and 155 belts.", diff: "Easy", yr: 2016 },
+      { q: "How many consecutive successful UFC title defenses did Demetrious Johnson achieve to set the all-time UFC record?", opts: ["11 defenses", "10 defenses", "12 defenses", "9 defenses"], a: "11 defenses", exp: "Demetrious 'Mighty Mouse' Johnson defended the flyweight title 11 consecutive times between 2012 and 2017.", diff: "Medium", yr: 2017 },
+      { q: "Who submitted Conor McGregor via neck crank in the 4th round of their record-breaking grudge match at UFC 229?", opts: ["Khabib Nurmagomedov", "Nate Diaz", "Dustin Poirier", "Justin Gaethje"], a: "Khabib Nurmagomedov", exp: "Khabib Nurmagomedov retained his lightweight championship at UFC 229 in October 2018.", diff: "Medium", yr: 2018 },
+      { q: "At which event did Holly Holm deliver a head kick knockout to upset undefeated Ronda Rousey in November 2015?", opts: ["UFC 193 in Melbourne", "UFC 190 in Rio", "UFC 194 in Las Vegas", "UFC 200 in Las Vegas"], a: "UFC 193 in Melbourne", exp: "Holly Holm knocked out Ronda Rousey in front of 56,214 fans at Marvel Stadium in Melbourne.", diff: "Hard", yr: 2015 },
+      { q: "Who is the only fighter in UFC history to successfully win championship belts in both Middleweight and Light Heavyweight divisions within 7 UFC fights?", opts: ["Alex Pereira", "Israel Adesanya", "Jon Jones", "Dan Henderson"], a: "Alex Pereira", exp: "Alex Pereira won the middleweight title at UFC 281 and light heavyweight title at UFC 295.", diff: "Hard", yr: 2023 },
+      { q: "At UFC 1 in November 1993 in Denver, who won the tournament by submitting three opponents in one night?", opts: ["Royce Gracie", "Ken Shamrock", "Gerard Gordeau", "Art Jimmerson"], a: "Royce Gracie", exp: "Brazilian Jiu-Jitsu pioneer Royce Gracie won the inaugural UFC tournament in 1993.", diff: "Legendary", yr: 1993 },
     ],
   };
 
@@ -297,42 +311,33 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
       pool.push({
         sport: s,
         difficulty: item.diff,
-        category: `${s} Records`,
+        category: options.category || `${s} Heritage Records`,
         year: item.yr,
         question: item.q,
         options: [...item.opts],
         answer: item.a,
         explanation: item.exp,
-        source: "Sports Heritage Archives",
+        source: "Arena Sports Verified Archives",
       });
     }
   }
 
-  // If pool was filtered down too much by specific difficulty, only accept adjacent difficulties
-  // (NEVER pollute Legendary with Easy or Easy with Legendary)
   if (pool.length < count) {
-    const allowedDiffs = targetDiff === "Legendary"
-      ? ["Legendary", "Hard"]
-      : targetDiff === "Hard"
-      ? ["Hard", "Medium"]
-      : targetDiff === "Easy"
-      ? ["Easy", "Medium"]
-      : ["Medium", "Easy", "Hard"];
-
+    // If specific difficulty didn't have enough, pull in remaining items for the EXACT SAME sports (never cross-contaminate sports!)
     for (const s of sports) {
       const list = factsBank[s] || factsBank["Cricket"];
       for (const item of list) {
-        if (!allowedDiffs.includes(item.diff)) continue;
+        if (pool.some((p) => p.question === item.q)) continue;
         pool.push({
           sport: s,
           difficulty: item.diff,
-          category: `${s} Records`,
+          category: options.category || `${s} Heritage Records`,
           year: item.yr,
           question: item.q,
           options: [...item.opts],
           answer: item.a,
           explanation: item.exp,
-          source: "Sports Heritage Archives",
+          source: "Arena Sports Verified Archives",
         });
       }
     }
@@ -345,39 +350,72 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
 
 /**
  * Main Question Generation Service.
- * Attempts configured AI provider first, then falls back gracefully if necessary.
+ * Routes automatically based on game mode:
+ * - "classic" and "challenge" -> Google Gemini
+ * - "multiplayer" (1v1) and "sprint" (60s) -> Grok / Groq API
  */
 export async function generateAIQuestions(options: GenerateOptions): Promise<RawGeneratedQuestion[]> {
-  const provider = (process.env.AI_PROVIDER || "gemini").toLowerCase();
+  const mode = options.mode || "classic";
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
 
-  try {
-    if ((provider === "gemini" || !process.env.AI_PROVIDER) && geminiKey) {
-      const model = process.env.AI_MODEL || "gemini-2.5-flash";
-      return await generateViaGemini(options, geminiKey, model);
+  // 1. 1v1 Multiplayer & 60s Sprint -> Routed to Grok / Groq API
+  if (mode === "multiplayer" || mode === "sprint") {
+    // Try Groq API first (free high-speed inference)
+    if (groqKey) {
+      try {
+        const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, model);
+      } catch (err) {
+        console.warn(`[AI Generator - Grok] Groq API warning: ${err instanceof Error ? err.message : String(err)}. Checking fallback.`);
+      }
     }
 
-    if (provider === "groq" && groqKey) {
-      const model = process.env.AI_MODEL || "llama-3.3-70b-versatile";
-      return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, model);
+    // Try xAI Grok endpoint if configured
+    if (xaiKey && xaiKey !== groqKey) {
+      try {
+        const model = process.env.XAI_MODEL || "grok-beta";
+        return await generateViaOpenAICompatible(options, "https://api.x.ai/v1", xaiKey, model);
+      } catch (err) {
+        console.warn(`[AI Generator - xAI] xAI Grok error: ${err instanceof Error ? err.message : String(err)}.`);
+      }
     }
 
-    if (provider === "openrouter" && openrouterKey) {
-      const model = process.env.AI_MODEL || "google/gemini-2.0-flash-lite-001:free";
-      return await generateViaOpenAICompatible(options, "https://openrouter.ai/api/v1", openrouterKey, model);
+    // If Grok key is missing or failed, use Gemini as backup before falling back
+    if (geminiKey) {
+      try {
+        const model = process.env.AI_MODEL || "gemini-2.5-flash";
+        return await generateViaGemini(options, geminiKey, model);
+      } catch (err) {
+        console.warn(`[AI Generator - Gemini Backup for ${mode}]: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
-
-    if (provider === "openai" && openaiKey) {
-      const model = process.env.AI_MODEL || "gpt-4o-mini";
-      return await generateViaOpenAICompatible(options, "https://api.openai.com/v1", openaiKey, model);
-    }
-  } catch (error) {
-    console.warn(`[AI Generator] ${provider} error: ${error instanceof Error ? error.message : String(error)}. Engaging resilient fallback generator.`);
   }
 
-  // Return guaranteed high-quality questions from the verified fallback engine
+  // 2. Classic & Challenge Modes -> Routed to Google Gemini
+  if (mode === "classic" || mode === "challenge" || !mode) {
+    if (geminiKey) {
+      try {
+        const model = process.env.AI_MODEL || "gemini-2.5-flash";
+        return await generateViaGemini(options, geminiKey, model);
+      } catch (err) {
+        console.warn(`[AI Generator - Gemini] Gemini API notice: ${err instanceof Error ? err.message : String(err)}. Engaging backup.`);
+      }
+    }
+
+    // Grok backup for Classic/Challenge if Gemini fails
+    if (groqKey) {
+      try {
+        const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, model);
+      } catch {
+        // Continue to fallback
+      }
+    }
+  }
+
+  // Guaranteed verified fallback questions strictly 1975-2026 for the 6 sports
   return generateFallbackQuestions(options);
 }
+

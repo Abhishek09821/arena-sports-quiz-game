@@ -150,42 +150,42 @@ export function getUnseenCount(_sport?: Sport | "All Sports", _difficulty?: Diff
 }
 
 /**
- * Built-in fallback questions generator for synchronous game building (e.g. offline testing/sprint mode)
+ * Built-in fallback questions generator for synchronous game building (strictly 6 sports, 1975-2026)
  */
 const SYNC_FALLBACK_POOL: Question[] = [
   // Easy
-  { id: "sync-1", sport: "Cricket", difficulty: "Easy", year: 2011, question: "Who won the 2011 ICC Cricket World Cup?", options: ["India", "Sri Lanka", "Australia", "England"], answer: 0, explanation: "India defeated Sri Lanka in the final in Mumbai." },
-  { id: "sync-2", sport: "Football", difficulty: "Easy", year: 2022, question: "Which nation won the 2022 FIFA World Cup in Qatar?", options: ["Argentina", "France", "Croatia", "Morocco"], answer: 0, explanation: "Argentina defeated France in the final." },
-  { id: "sync-3", sport: "Basketball", difficulty: "Easy", year: 2023, question: "Which player became the NBA's all-time scoring leader in 2023?", options: ["LeBron James", "Kareem Abdul-Jabbar", "Michael Jordan", "Kobe Bryant"], answer: 0, explanation: "LeBron James passed Kareem's record." },
-  { id: "sync-4", sport: "Tennis", difficulty: "Easy", year: 2023, question: "Who has won the most men's Grand Slam singles titles in the Open Era?", options: ["Novak Djokovic", "Rafael Nadal", "Roger Federer", "Pete Sampras"], answer: 0, explanation: "Novak Djokovic has won 24 Grand Slam singles titles." },
-  { id: "sync-5", sport: "Formula 1", difficulty: "Easy", year: 2023, question: "Who won the 2023 Formula 1 World Drivers' Championship?", options: ["Max Verstappen", "Lewis Hamilton", "Sergio Pérez", "Fernando Alonso"], answer: 0, explanation: "Max Verstappen won 19 races in 2023." },
-  { id: "sync-6", sport: "Athletics", difficulty: "Easy", year: 2009, question: "What is the men's 100m world record set by Usain Bolt?", options: ["9.58 seconds", "9.63 seconds", "9.69 seconds", "9.72 seconds"], answer: 0, explanation: "Bolt ran 9.58s in Berlin in 2009." },
-  { id: "sync-7", sport: "Badminton", difficulty: "Easy", year: 2024, question: "Who won the Men's Singles Olympic Badminton gold in Paris 2024?", options: ["Viktor Axelsen", "Kunlavut Vitidsarn", "Lee Zii Jia", "Lakshya Sen"], answer: 0, explanation: "Viktor Axelsen retained his Olympic title." },
-  { id: "sync-8", sport: "Hockey", difficulty: "Easy", year: 2023, question: "Which country won the 2023 Men's FIH Hockey World Cup?", options: ["Germany", "Belgium", "Netherlands", "Australia"], answer: 0, explanation: "Germany defeated Belgium in the final." },
+  { id: "sync-1", sport: "Cricket", difficulty: "Easy", year: 2011, question: "Who won the 2011 ICC Cricket World Cup?", options: ["India", "Sri Lanka", "Australia", "England"], answer: 0, explanation: "India defeated Sri Lanka in the final in Mumbai in 2011." },
+  { id: "sync-2", sport: "Football", difficulty: "Easy", year: 2022, question: "Which nation won the 2022 FIFA World Cup in Qatar?", options: ["Argentina", "France", "Croatia", "Morocco"], answer: 0, explanation: "Argentina defeated France on penalties in the 2022 final." },
+  { id: "sync-3", sport: "Basketball", difficulty: "Easy", year: 2023, question: "Which player became the NBA's all-time scoring leader in 2023?", options: ["LeBron James", "Kareem Abdul-Jabbar", "Michael Jordan", "Kobe Bryant"], answer: 0, explanation: "LeBron James passed Kareem's record in February 2023." },
+  { id: "sync-4", sport: "Formula 1", difficulty: "Easy", year: 2023, question: "Who won the 2023 Formula 1 World Drivers' Championship with 19 race wins?", options: ["Max Verstappen", "Lewis Hamilton", "Sergio Pérez", "Fernando Alonso"], answer: 0, explanation: "Max Verstappen won 19 of 22 races in 2023." },
+  { id: "sync-5", sport: "WWE/WWF", difficulty: "Easy", year: 2014, question: "Who ended The Undertaker's 21-0 undefeated streak at WrestleMania XXX?", options: ["Brock Lesnar", "Roman Reigns", "John Cena", "Triple H"], answer: 0, explanation: "Brock Lesnar defeated The Undertaker at WrestleMania XXX in New Orleans in 2014." },
+  { id: "sync-6", sport: "UFC", difficulty: "Easy", year: 2019, question: "Who scored the fastest knockout in UFC history (5 seconds) against Ben Askren?", options: ["Jorge Masvidal", "Conor McGregor", "Francis Ngannou", "Duane Ludwig"], answer: 0, explanation: "Jorge Masvidal landed a flying knee 5 seconds into UFC 239 in 2019." },
   { id: "sync-11", sport: "Football", difficulty: "Easy", year: 2023, question: "Who has won the most Ballon d'Or trophies in football history (8)?", options: ["Lionel Messi", "Cristiano Ronaldo", "Michel Platini", "Johan Cruyff"], answer: 0, explanation: "Lionel Messi won his record 8th Ballon d'Or in 2023." },
-  { id: "sync-12", sport: "Football", difficulty: "Easy", year: 2024, question: "Which football club has won the most UEFA Champions League / European Cup titles (15)?", options: ["Real Madrid", "AC Milan", "Bayern Munich", "Liverpool"], answer: 0, explanation: "Real Madrid has won 15 European Cup / Champions League titles." },
+  { id: "sync-12", sport: "Football", difficulty: "Easy", year: 2024, question: "Which club has won the most UEFA Champions League / European Cup titles (15)?", options: ["Real Madrid", "AC Milan", "Bayern Munich", "Liverpool"], answer: 0, explanation: "Real Madrid won their 15th title in June 2024 at Wembley." },
 
   // Medium
-  { id: "sync-9", sport: "Cricket", difficulty: "Medium", year: 2019, question: "Which team won the 2019 ICC Cricket World Cup final at Lord's?", options: ["England", "New Zealand", "India", "Australia"], answer: 0, explanation: "England won by boundary countback after tied Super Over." },
-  { id: "sync-10", sport: "Football", difficulty: "Medium", year: 2004, question: "Which country won the UEFA Euro 2004 in a legendary upset?", options: ["Greece", "Portugal", "Czech Republic", "France"], answer: 0, explanation: "Greece defeated hosts Portugal 1-0 in Lisbon." },
-  { id: "sync-15", sport: "Football", difficulty: "Medium", year: 2016, question: "Which nation won the UEFA Euro 2016 championship by defeating host nation France in the final?", options: ["Portugal", "Spain", "Germany", "Italy"], answer: 0, explanation: "Portugal defeated France 1-0 in extra time at the Stade de France." },
-  { id: "sync-17", sport: "Basketball", difficulty: "Medium", year: 2004, question: "Which country defeated Team USA in the men's basketball semi-final at the 2004 Athens Olympics?", options: ["Argentina", "Lithuania", "Spain", "Italy"], answer: 0, explanation: "Manu Ginobili led Argentina to an 89-81 victory on their way to Olympic gold." },
-  { id: "sync-18", sport: "Tennis", difficulty: "Medium", year: 1988, question: "Which female tennis player completed the Golden Slam (all 4 majors and Olympic Gold in 1988)?", options: ["Steffi Graf", "Serena Williams", "Martina Navratilova", "Chris Evert"], answer: 0, explanation: "Steffi Graf accomplished the calendar Golden Slam in 1988." },
+  { id: "sync-9", sport: "Cricket", difficulty: "Medium", year: 2019, question: "Which team won the 2019 ICC Cricket World Cup final at Lord's on boundary countback?", options: ["England", "New Zealand", "India", "Australia"], answer: 0, explanation: "England won by boundary countback after a tied match and Super Over." },
+  { id: "sync-10", sport: "Football", difficulty: "Medium", year: 2004, question: "Which country won the UEFA Euro 2004 in a legendary upset?", options: ["Greece", "Portugal", "Czech Republic", "France"], answer: 0, explanation: "Greece defeated hosts Portugal 1-0 in Lisbon in 2004." },
+  { id: "sync-15", sport: "Football", difficulty: "Medium", year: 2016, question: "Which nation won the UEFA Euro 2016 championship by defeating hosts France?", options: ["Portugal", "Spain", "Germany", "Italy"], answer: 0, explanation: "Portugal defeated France 1-0 in extra time at Stade de France." },
+  { id: "sync-17", sport: "Basketball", difficulty: "Medium", year: 2004, question: "Which country defeated Team USA in men's basketball at the 2004 Athens Olympics?", options: ["Argentina", "Lithuania", "Spain", "Italy"], answer: 0, explanation: "Manu Ginobili led Argentina to an 89-81 victory on the way to Olympic gold." },
+  { id: "sync-w2", sport: "WWE/WWF", difficulty: "Medium", year: 1998, question: "Which match featured Mankind being thrown off the top of Hell in a Cell by The Undertaker?", options: ["King of the Ring 1998", "WrestleMania XIV", "SummerSlam 1998", "Royal Rumble 1999"], answer: 0, explanation: "Mick Foley fell from the cell structure at King of the Ring in Pittsburgh in June 1998." },
+  { id: "sync-u2", sport: "UFC", difficulty: "Medium", year: 2018, question: "Who submitted Conor McGregor in the 4th round at UFC 229 in Las Vegas?", options: ["Khabib Nurmagomedov", "Nate Diaz", "Dustin Poirier", "Justin Gaethje"], answer: 0, explanation: "Khabib Nurmagomedov retained his lightweight championship at UFC 229 in October 2018." },
 
   // Hard
   { id: "sync-h1", sport: "Cricket", difficulty: "Hard", year: 1999, question: "Who was the Man of the Match in the 1999 ICC Cricket World Cup Final at Lord's?", options: ["Shane Warne", "Glenn McGrath", "Adam Gilchrist", "Steve Waugh"], answer: 0, explanation: "Shane Warne took 4 for 33 as Australia bowled Pakistan out for 132." },
   { id: "sync-h2", sport: "Football", difficulty: "Hard", year: 2010, question: "Which referee officiated the 2010 FIFA World Cup Final, issuing 14 yellow cards?", options: ["Howard Webb", "Pierluigi Collina", "Nicola Rizzoli", "Massimo Busacca"], answer: 0, explanation: "English referee Howard Webb refereed Spain vs Netherlands in Johannesburg." },
   { id: "sync-h3", sport: "Basketball", difficulty: "Hard", year: 1995, question: "Which player scored 8 points in 9 seconds in Game 1 of the 1995 Eastern Conference Semifinals?", options: ["Reggie Miller", "Rik Smits", "Mark Jackson", "Dale Davis"], answer: 0, explanation: "Reggie Miller led the Indiana Pacers to a shock comeback at Madison Square Garden." },
   { id: "sync-h4", sport: "Formula 1", difficulty: "Hard", year: 2008, question: "Who won the 2008 Italian Grand Prix at Monza for Toro Rosso, becoming the youngest winner at the time?", options: ["Sebastian Vettel", "Lewis Hamilton", "Fernando Alonso", "Robert Kubica"], answer: 0, explanation: "21-year-old Sebastian Vettel scored a sensational wet-weather win." },
-  { id: "sync-h5", sport: "Tennis", difficulty: "Hard", year: 2001, question: "Which unseeded wildcard entrant famously won the 2001 Wimbledon Gentlemen's Singles title?", options: ["Goran Ivanišević", "Patrick Rafter", "Tim Henman", "Marat Safin"], answer: 0, explanation: "Ranked 125th, Goran Ivanišević won Wimbledon on People's Monday." },
+  { id: "sync-hw", sport: "WWE/WWF", difficulty: "Hard", year: 2003, question: "At which WrestleMania did 'Stone Cold' Steve Austin face The Rock in their final trilogy match?", options: ["WrestleMania XIX", "WrestleMania X-Seven", "WrestleMania XV", "WrestleMania XX"], answer: 0, explanation: "The Rock defeated Austin at WrestleMania XIX in Seattle in Austin's final match for 19 years." },
+  { id: "sync-hu", sport: "UFC", difficulty: "Hard", year: 2015, question: "At which UFC event in Melbourne did Holly Holm knock out undefeated champion Ronda Rousey?", options: ["UFC 193", "UFC 190", "UFC 194", "UFC 200"], answer: 0, explanation: "Holly Holm landed a head kick at UFC 193 in November 2015 in Melbourne." },
 
   // Legendary
   { id: "sync-l1", sport: "Cricket", difficulty: "Legendary", year: 2007, question: "Who was the only bowler to take 4 wickets in 4 consecutive balls in a Men's World Cup match?", options: ["Lasith Malinga", "Chaminda Vaas", "Wasim Akram", "Brett Lee"], answer: 0, explanation: "Lasith Malinga took 4 in 4 against South Africa in the 2007 World Cup in Guyana." },
-  { id: "sync-l2", sport: "Football", difficulty: "Legendary", year: 2010, question: "Who is the only player to score hat-tricks in the Premier League, Champions League, and FA Cup in the same season (2009-10)?", options: ["Yossi Benayoun", "Fernando Torres", "Didier Drogba", "Wayne Rooney"], answer: 0, explanation: "Yossi Benayoun achieved this rare treble of hat-tricks playing for Liverpool." },
-  { id: "sync-l3", sport: "Basketball", difficulty: "Legendary", year: 1969, question: "Who is the only player in NBA history to win Finals MVP despite being on the losing team?", options: ["Jerry West", "LeBron James", "Wilt Chamberlain", "Magic Johnson"], answer: 0, explanation: "Jerry West won Finals MVP in 1969 despite the Lakers losing Game 7 to Boston." },
-  { id: "sync-l4", sport: "Tennis", difficulty: "Legendary", year: 2010, question: "How many games were played in the fifth set of the historic Isner-Mahut match at Wimbledon 2010?", options: ["138 games (70-68)", "122 games (62-60)", "104 games (53-51)", "96 games (49-47)"], answer: 0, explanation: "John Isner defeated Nicolas Mahut 70-68 in the final set after over 11 hours of play." },
-  { id: "sync-l5", sport: "Formula 1", difficulty: "Legendary", year: 2007, question: "Who was the last driver to win the Formula 1 World Drivers' Championship driving for Ferrari?", options: ["Kimi Räikkönen", "Felipe Massa", "Fernando Alonso", "Sebastian Vettel"], answer: 0, explanation: "Kimi Räikkönen won the 2007 Drivers' Championship for Ferrari by one point." },
-  { id: "sync-l6", sport: "Athletics", difficulty: "Legendary", year: 1994, question: "Who held the men's outdoor pole vault world record of 6.14m for 20 years from 1994 to 2014?", options: ["Sergey Bubka", "Maksim Tarasov", "Jeff Hartwig", "Brad Walker"], answer: 0, explanation: "Sergey Bubka cleared 6.14m in Sestriere, Italy in July 1994." },
+  { id: "sync-l2", sport: "Football", difficulty: "Legendary", year: 2010, question: "Who is the only player to score hat-tricks in the Premier League, Champions League, and FA Cup in the 2009-10 season?", options: ["Yossi Benayoun", "Fernando Torres", "Didier Drogba", "Wayne Rooney"], answer: 0, explanation: "Yossi Benayoun achieved this rare treble of hat-tricks playing for Liverpool in 2009-10." },
+  { id: "sync-l3", sport: "Basketball", difficulty: "Legendary", year: 1998, question: "Which team drafted Dirk Nowitzki with the 9th overall pick in 1998 before trading him to Dallas?", options: ["Milwaukee Bucks", "Boston Celtics", "Denver Nuggets", "Golden State Warriors"], answer: 0, explanation: "The Bucks drafted Nowitzki in 1998 and traded him on draft night for Robert Traylor." },
+  { id: "sync-l5", sport: "Formula 1", difficulty: "Legendary", year: 2007, question: "Who was the last driver to win the Formula 1 World Drivers' Championship driving for Ferrari?", options: ["Kimi Räikkönen", "Felipe Massa", "Fernando Alonso", "Sebastian Vettel"], answer: 0, explanation: "Kimi Räikkönen won the 2007 Drivers' Championship for Ferrari by one point in Brazil." },
+  { id: "sync-lw", sport: "WWE/WWF", difficulty: "Legendary", year: 1988, question: "Who won the first-ever Men's Royal Rumble match in January 1988 in Hamilton, Ontario?", options: ["'Hacksaw' Jim Duggan", "One Man Gang", "Bret Hart", "Don Muraco"], answer: 0, explanation: "Jim Duggan eliminated One Man Gang to win the inaugural 1988 Royal Rumble." },
+  { id: "sync-lu", sport: "UFC", difficulty: "Legendary", year: 1993, question: "Who won the tournament at UFC 1 in Denver in November 1993 by submitting three opponents in one night?", options: ["Royce Gracie", "Ken Shamrock", "Gerard Gordeau", "Art Jimmerson"], answer: 0, explanation: "Royce Gracie won the inaugural UFC 1 tournament in 1993 using Brazilian Jiu-Jitsu." },
 ];
 
 /**
@@ -201,27 +201,15 @@ export function buildGame(options: SelectionOptions): Question[] {
   });
 
   if (pool.length === 0) {
-    // If strict match has 0 items, strictly avoid cross-contaminating extremes
-    const acceptableDiffs = difficulty === "Legendary"
-      ? ["Legendary", "Hard"]
-      : difficulty === "Hard"
-      ? ["Hard", "Medium"]
-      : difficulty === "Easy"
-      ? ["Easy", "Medium"]
-      : ["Easy", "Medium", "Hard", "Legendary"];
-
+    // If strict difficulty match has 0 items, keep sport strict! Never cross-contaminate sports!
     pool = SYNC_FALLBACK_POOL.filter((q) => {
       if (sport && sport !== "All Sports" && q.sport !== sport) return false;
-      if (difficulty && difficulty !== "Mixed" && !acceptableDiffs.includes(q.difficulty)) return false;
       return true;
     });
 
-    // If still 0 (e.g. rare sport + rare diff), keep acceptable diffs across all sports
+    // If still 0 (e.g. rare combination and all sports), use full pool
     if (pool.length === 0) {
-      pool = SYNC_FALLBACK_POOL.filter((q) => {
-        if (difficulty && difficulty !== "Mixed" && !acceptableDiffs.includes(q.difficulty)) return false;
-        return true;
-      });
+      pool = [...SYNC_FALLBACK_POOL];
     }
   }
 

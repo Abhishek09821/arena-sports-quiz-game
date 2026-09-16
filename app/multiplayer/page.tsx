@@ -20,8 +20,8 @@ import {
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { audio } from "@/lib/audio";
-import { buildGame } from "@/lib/quiz";
-import { SPORT_LIST, DIFFICULTY_LIST, type Question, type Sport, type Difficulty } from "@/data/questions";
+import { buildGame, getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
+import { SPORT_LIST, DIFFICULTY_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
 
 type RoomStatus = "idle" | "lobby" | "ready" | "playing" | "finished";
@@ -44,18 +44,18 @@ function getPlayerToken(): string {
 interface StoredMPSession {
   roomCode: string;
   playerToken: string;
-  playerName: string;
   role: "host" | "guest";
+  playerName: string;
 }
 
 export default function MultiplayerPage() {
-  const [name, setName] = useState("Player 1");
-  const [codeInput, setCodeInput] = useState("");
+  const [name, setName] = useState("");
   const [roomCode, setRoomCode] = useState("");
+  const [codeInput, setCodeInput] = useState("");
   const [status, setStatus] = useState<RoomStatus>("idle");
-  const [players, setPlayers] = useState<Record<string, PlayerState>>({});
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQ, setCurrentQ] = useState(0);
+  const [players, setPlayers] = useState<Record<string, PlayerState>>({});
   const [buzzWinner, setBuzzWinner] = useState<string | null>(null);
   const [myBuzzed, setMyBuzzed] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -66,14 +66,15 @@ export default function MultiplayerPage() {
   const [connected, setConnected] = useState(false);
   const [isHost, setIsHost] = useState(false);
 
-  // New customization state for 1v1 Arena
+  // Customization state for 1v1 Arena
   const [selectedSport, setSelectedSport] = useState<Sport | "All Sports">("All Sports");
+  const [selectedTournament, setSelectedTournament] = useState<string>("All Tournaments");
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | "Mixed">("Mixed");
   const [selectedCount, setSelectedCount] = useState<number>(10);
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [roomSettings, setRoomSettings] = useState<{ sport: string; difficulty: string; hostName: string } | null>(null);
+  const [roomSettings, setRoomSettings] = useState<{ sport: string; difficulty: string; hostName: string; tournament?: string } | null>(null);
 
   // Timer & Buzzer state
   const [questionTime, setQuestionTime] = useState<number>(15);
@@ -211,19 +212,46 @@ export default function MultiplayerPage() {
     return () => clearInterval(interval);
   }, [roomCode, status, syncRoomState]);
 
-  // Create room with difficulty and sport stored in Supabase
+  // Create room with Grok AI questions, difficulty, sport, and tournament
   const createRoom = useCallback(async () => {
     setIsCreating(true);
+    audio.click();
     const code = generateRoomCode();
     setRoomCode(code);
     setCodeInput(code);
     setIsHost(true);
 
-    const qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
+    let qs: Question[] = [];
+    try {
+      const seenIds = Array.from(getPersistentSeenIds()).slice(-30);
+      const res = await fetch("/api/quiz/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sport: selectedSport,
+          difficulty: selectedDifficulty,
+          count: selectedCount,
+          category: selectedTournament !== "All Tournaments" && selectedTournament !== "All Events" && selectedTournament !== "All Grand Prix" ? selectedTournament : undefined,
+          mode: "multiplayer",
+          excludeStems: seenIds,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+        qs = data.questions;
+        markQuestionsSeen(qs.map((q) => q.question.slice(0, 45)));
+      } else {
+        qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
+      }
+    } catch {
+      qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
+    }
+
     setQuestions(qs);
     setRoomSettings({
       sport: selectedSport,
       difficulty: selectedDifficulty,
+      tournament: selectedTournament,
       hostName: name || "Host",
     });
 
@@ -236,6 +264,7 @@ export default function MultiplayerPage() {
           hostName: name || "Host",
           sport: selectedSport,
           difficulty: selectedDifficulty,
+          tournament: selectedTournament,
           count: selectedCount,
           questions: qs,
           playerToken: myIdRef.current,
@@ -257,11 +286,11 @@ export default function MultiplayerPage() {
     } finally {
       setIsCreating(false);
       setStatus("lobby");
-      addEvent(`Room created (${selectedDifficulty} • ${selectedSport}). Share code: ${code}`);
+      addEvent(`Room created (${selectedDifficulty} • ${selectedSport}${selectedTournament !== "All Tournaments" ? ` • ${selectedTournament}` : ""}). Share code: ${code}`);
       trackEvent("room_created", { code, sport: selectedSport, difficulty: selectedDifficulty });
       audio.select();
     }
-  }, [name, selectedSport, selectedDifficulty, selectedCount, addEvent]);
+  }, [name, selectedSport, selectedDifficulty, selectedTournament, selectedCount, addEvent]);
 
   // Join room with strict capacity enforcement
   const joinRoom = useCallback(async () => {
@@ -808,9 +837,13 @@ export default function MultiplayerPage() {
                 Sport
               </span>
               <select
-                className="arena-input text-sm"
+                className="arena-input text-sm cursor-pointer"
                 value={selectedSport}
-                onChange={(e) => setSelectedSport(e.target.value as Sport | "All Sports")}
+                onChange={(e) => {
+                  setSelectedSport(e.target.value as Sport | "All Sports");
+                  setSelectedTournament("All Tournaments");
+                  audio.tap();
+                }}
               >
                 <option value="All Sports" className="bg-arena-panel">All Sports (Mixed Multi-Sport)</option>
                 {SPORT_LIST.map((s) => (
@@ -820,6 +853,37 @@ export default function MultiplayerPage() {
                 ))}
               </select>
             </div>
+
+            {/* Tournament / League Selection */}
+            {selectedSport !== "All Sports" && TOURNAMENTS_BY_SPORT[selectedSport] && (
+              <div>
+                <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+                  Tournament / League
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {TOURNAMENTS_BY_SPORT[selectedSport].map((t) => {
+                    const active = selectedTournament === t;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTournament(t);
+                          audio.tap();
+                        }}
+                        className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-all border cursor-pointer ${
+                          active
+                            ? "bg-arena-accent/20 border-arena-accent text-arena-accent font-semibold shadow-[0_0_10px_rgba(0,212,255,0.2)]"
+                            : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text hover:bg-white/[.05]"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Difficulty Selection */}
             <div>

@@ -102,16 +102,37 @@ export function validateQuestion(raw: unknown): ValidationResult {
   // 2. Sport validation
   const validSports = new Set(SPORT_LIST);
   let resolvedSport: Sport = "Cricket";
-  if (!q.sport || typeof q.sport !== "string" || !validSports.has(q.sport as Sport)) {
-    // Attempt case-insensitive match
-    const matched = SPORT_LIST.find((s) => s.toLowerCase() === (q.sport || "").toLowerCase());
+  const rawSportLower = (q.sport || "").toLowerCase().trim();
+
+  const sportAliasMap: Record<string, Sport> = {
+    cricket: "Cricket",
+    football: "Football",
+    soccer: "Football",
+    basketball: "Basketball",
+    nba: "Basketball",
+    "formula 1": "Formula 1",
+    formula1: "Formula 1",
+    f1: "Formula 1",
+    "wwe/wwf": "WWE/WWF",
+    wwe: "WWE/WWF",
+    wwf: "WWE/WWF",
+    "pro wrestling": "WWE/WWF",
+    wrestling: "WWE/WWF",
+    ufc: "UFC",
+    mma: "UFC",
+  };
+
+  if (sportAliasMap[rawSportLower]) {
+    resolvedSport = sportAliasMap[rawSportLower];
+  } else if (validSports.has(q.sport as Sport)) {
+    resolvedSport = q.sport as Sport;
+  } else {
+    const matched = SPORT_LIST.find((s) => s.toLowerCase() === rawSportLower);
     if (matched) {
       resolvedSport = matched;
     } else {
       errors.push(`Invalid sport '${q.sport}'. Must be one of: ${SPORT_LIST.join(", ")}`);
     }
-  } else {
-    resolvedSport = q.sport as Sport;
   }
 
   // Strict Association Football verification: Reject any American Football / NFL content
@@ -231,11 +252,11 @@ export function validateQuestion(raw: unknown): ValidationResult {
     ? q.explanation.trim()
     : `${answerText} is the correct answer.`;
 
-  // 7. Year & Category
-  const currentYear = new Date().getFullYear();
-  let year = typeof q.year === "number" && !isNaN(q.year) ? Math.floor(q.year) : currentYear;
-  if (year < 1850 || year > currentYear + 2) {
-    year = currentYear;
+  // 7. Year & Category (Strictly 1975 to 2026)
+  let year = typeof q.year === "number" && !isNaN(q.year) ? Math.floor(q.year) : 2024;
+  if (year < 1975 || year > 2026) {
+    // Flag error if year outside strict 1975-2026 window
+    errors.push(`Question year (${year}) is outside strict 1975-2026 window. All trivia must be from 1975 to 2026.`);
   }
 
   const category = typeof q.category === "string" && q.category.trim().length > 0

@@ -6,11 +6,9 @@ export const SPORT_LIST = [
   "Cricket",
   "Football",
   "Basketball",
-  "Tennis",
   "Formula 1",
-  "Badminton",
-  "Hockey",
-  "Athletics",
+  "WWE/WWF",
+  "UFC",
 ] as const;
 
 export type Sport = (typeof SPORT_LIST)[number];
@@ -18,73 +16,64 @@ export type Sport = (typeof SPORT_LIST)[number];
 export const DIFFICULTY_LIST = ["Easy", "Medium", "Hard", "Legendary"] as const;
 export type Difficulty = (typeof DIFFICULTY_LIST)[number];
 
-export const SPORT_META: Record<Sport, { icon: string; color: string }> = {
-  Cricket: { icon: "🏏", color: "#71e6ff" },
-  Football: { icon: "⚽", color: "#62e6a4" },
-  Basketball: { icon: "🏀", color: "#fbbf24" },
-  Tennis: { icon: "🎾", color: "#a78bfa" },
-  "Formula 1": { icon: "🏎️", color: "#ff6b7a" },
-  Badminton: { icon: "🏸", color: "#71e6ff" },
-  Hockey: { icon: "🏑", color: "#34d399" },
-  Athletics: { icon: "🏃", color: "#fb923c" },
+export const SPORT_META: Record<Sport, { icon: string; color: string; desc: string }> = {
+  Cricket: { icon: "🏏", color: "#71e6ff", desc: "ICC World Cups, IPL, Ashes & T20 records" },
+  Football: { icon: "⚽", color: "#62e6a4", desc: "FIFA World Cup, UEFA Champions League, Premier League" },
+  Basketball: { icon: "🏀", color: "#fbbf24", desc: "NBA Finals, Playoff thrillers & Olympic hoops" },
+  "Formula 1": { icon: "🏎️", color: "#ff6b7a", desc: "Grand Prix milestones, Constructors & F1 Legends" },
+  "WWE/WWF": { icon: "🤼", color: "#ec4899", desc: "WrestleMania, Royal Rumble, Attitude Era & Icons" },
+  UFC: { icon: "🥊", color: "#f97316", desc: "Championship fights, PPVs, knockouts & Octagon history" },
 };
 
 export const TOURNAMENTS_BY_SPORT: Record<Sport, string[]> = {
-  Football: [
-    "FIFA World Cup",
-    "UEFA Champions League",
-    "Premier League",
-    "UEFA European Championship",
-    "Copa América",
-  ],
   Cricket: [
+    "All Tournaments",
     "ICC Cricket World Cup",
     "ICC Men's T20 World Cup",
     "Indian Premier League (IPL)",
-    "The Ashes",
+    "The Ashes Series",
     "ICC Champions Trophy",
+    "ICC World Test Championship",
+  ],
+  Football: [
+    "All Tournaments",
+    "FIFA World Cup",
+    "UEFA Champions League",
+    "Premier League",
+    "La Liga",
+    "UEFA European Championship",
+    "Copa América",
   ],
   Basketball: [
+    "All Tournaments",
     "NBA Finals & Playoffs",
+    "NBA Regular Season & All-Star",
     "FIBA Basketball World Cup",
     "Olympic Men's Basketball",
-    "NCAA March Madness",
     "EuroLeague",
   ],
-  Tennis: [
-    "Wimbledon Championships",
-    "Roland Garros (French Open)",
-    "US Open",
-    "Australian Open",
-    "ATP Finals",
-  ],
   "Formula 1": [
+    "All Grand Prix",
+    "World Drivers' Championship",
     "Monaco Grand Prix",
     "British Grand Prix (Silverstone)",
     "Italian Grand Prix (Monza)",
-    "Belgian Grand Prix (Spa-Francorchamps)",
     "Abu Dhabi Grand Prix",
   ],
-  Badminton: [
-    "BWF World Championships",
-    "All England Open Badminton",
-    "Olympic Games Badminton",
-    "Thomas & Uber Cup",
-    "BWF World Tour Finals",
+  "WWE/WWF": [
+    "All Events",
+    "WrestleMania",
+    "Royal Rumble",
+    "SummerSlam",
+    "Survivor Series",
+    "Attitude Era & World Championships",
   ],
-  Hockey: [
-    "FIH Men's Hockey World Cup",
-    "Olympic Field Hockey Tournament",
-    "FIH Hockey Pro League",
-    "Hockey Champions Trophy",
-    "EuroHockey Championship",
-  ],
-  Athletics: [
-    "Olympic Track & Field",
-    "World Athletics Championships",
-    "Diamond League",
-    "World Athletics Indoor Championships",
-    "World Marathon Majors",
+  UFC: [
+    "All Events",
+    "UFC Numbered PPVs",
+    "UFC World Championship Fights",
+    "UFC Hall of Fame & Legends",
+    "UFC Fight Night & Title Eliminators",
   ],
 };
 
@@ -125,5 +114,7 @@ export const q = (
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   Questions are now dynamically generated via AI and persisted in Supabase.
+   Questions are dynamically generated on-the-fly via AI.
+   Strict date validity: 1975 to 2026. Zero database persistence.
    ═══════════════════════════════════════════════════════════════ */
+

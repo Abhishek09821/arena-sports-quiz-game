@@ -3,11 +3,12 @@
 import { useState, Suspense, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
-import { SPORT_LIST, SPORT_META, DIFFICULTY_LIST, type Difficulty, type Sport } from "@/data/questions";
+import { SPORT_LIST, SPORT_META, DIFFICULTY_LIST, TOURNAMENTS_BY_SPORT, type Difficulty, type Sport } from "@/data/questions";
 import { useQuizStore } from "@/lib/store";
 import { useAuth } from "@/components/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import QuizGame from "@/components/QuizGame";
+import { getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
 import { ArrowLeft, Play, Check, Sparkles, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { motion, useInView, AnimatePresence } from "motion/react";
@@ -31,8 +32,8 @@ const diffColors: Record<Difficulty | "Mixed", string> = {
 };
 
 const loadingPhrases = [
-  "Synthesizing personalized questions with AI...",
-  "Querying verified tournament records...",
+  "Synthesizing questions via Google Gemini AI...",
+  "Querying verified tournament records (1975-2026)...",
   "Filtering out questions seen by your profile...",
   "Validating option credibility & distractors...",
   "Randomizing answer positions with Fisher-Yates...",
@@ -46,6 +47,7 @@ function PlayContent() {
 
   const { token, user, openAuthModal } = useAuth();
   const [sport, setSport] = useState<Sport | "All Sports">(initial);
+  const [selectedTournament, setSelectedTournament] = useState("All Tournaments");
   const [count, setCount] = useState(10);
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
   const [started, setStarted] = useState(false);
@@ -87,6 +89,8 @@ function PlayContent() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
+      const seenIds = Array.from(getPersistentSeenIds()).slice(-40);
+
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
         headers,
@@ -94,7 +98,9 @@ function PlayContent() {
           sport,
           difficulty,
           count,
+          category: selectedTournament !== "All Tournaments" && selectedTournament !== "All Events" && selectedTournament !== "All Grand Prix" ? selectedTournament : undefined,
           mode: "classic",
+          excludeStems: seenIds,
         }),
       });
 
@@ -104,6 +110,10 @@ function PlayContent() {
         throw new Error(data.message || data.error || "Failed to generate valid questions.");
       }
 
+      // Mark questions as seen locally to prevent future repeats
+      const newQuestionStems = data.questions.map((q: { question: string }) => q.question.slice(0, 45));
+      markQuestionsSeen(newQuestionStems);
+
       useQuizStore.getState().start(data.questions, {
         sport,
         difficulty,
@@ -112,6 +122,7 @@ function PlayContent() {
       });
 
       trackEvent("game_started", { sport, difficulty, count, mode: "classic", sessionId: data.sessionId });
+      audio.select();
       setStarted(true);
     } catch (err) {
       console.error("Quiz generation failed:", err);
@@ -230,6 +241,37 @@ function PlayContent() {
               );
             })}
           </div>
+
+          {/* Tournament / League Selection Option */}
+          {sport !== "All Sports" && TOURNAMENTS_BY_SPORT[sport] && (
+            <div className="mt-4 pt-4 border-t border-arena-line/60">
+              <div className="text-xs font-semibold uppercase tracking-wider text-arena-muted mb-2 flex items-center gap-1.5">
+                <span>🏆</span> Choose Tournament / League
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {TOURNAMENTS_BY_SPORT[sport].map((t) => {
+                  const isTActive = selectedTournament === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer border ${
+                        isTActive
+                          ? "bg-arena-accent/20 border-arena-accent text-arena-accent font-semibold shadow-[0_0_12px_rgba(0,212,255,0.25)]"
+                          : "bg-white/[.03] border-arena-line text-arena-muted hover:text-arena-text hover:bg-white/[.06]"
+                      }`}
+                      onClick={() => {
+                        setSelectedTournament(t);
+                        audio.tap();
+                      }}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* Difficulty & Count Selection */}

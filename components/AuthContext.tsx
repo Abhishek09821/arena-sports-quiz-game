@@ -155,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return { error: "Supabase connection is not available." };
     const safePath = (redirectPath && redirectPath.startsWith("/") && !redirectPath.startsWith("//")) ? redirectPath : "/play";
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const redirectTo = `${origin}${safePath}`;
+    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(safePath)}`;
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",

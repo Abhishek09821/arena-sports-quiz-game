@@ -2,11 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, X, Zap, Flame } from "lucide-react";
+import { Check, X, Zap, Flame, Loader2 } from "lucide-react";
 import { useQuizStore } from "@/lib/store";
 import { audio } from "@/lib/audio";
-import { buildGame } from "@/lib/quiz";
-import { SPORT_LIST, type Sport, type Difficulty } from "@/data/questions";
+import { buildGame, getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
+import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Sport, type Difficulty, type Question } from "@/data/questions";
 import ResultsScreen from "@/components/ResultsScreen";
 import { useAuth } from "@/components/AuthContext";
 
@@ -49,14 +49,14 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   const {
     questions,
     index,
+    locked,
+    selected,
+    choose,
+    next,
     score,
     streak,
     correct,
     wrong,
-    selected,
-    locked,
-    choose,
-    next,
     start,
     sprintTimeLeft,
     setSprintTime,
@@ -68,26 +68,67 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [sprintSport, setSprintSport] = useState<Sport | "All Sports">("All Sports");
+  const [sprintTournament, setSprintTournament] = useState("All Tournaments");
   const [sprintDifficulty, setSprintDifficulty] = useState<Difficulty | "Mixed">("Mixed");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [sprintQuestions, setSprintQuestions] = useState<Question[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize sprint with a large pool of questions
-  const startSprint = useCallback(() => {
+  // Initialize sprint with AI generated questions via Grok
+  const startSprint = useCallback(async () => {
     audio.unlock();
+    audio.click();
     if (!user) {
       openAuthModal("signup", "/sprint");
       return;
     }
-    // Start 3-2-1 countdown
-    setCountdown(3);
-  }, [user, openAuthModal]);
+
+    setIsGenerating(true);
+
+    try {
+      const seenIds = Array.from(getPersistentSeenIds()).slice(-30);
+      const res = await fetch("/api/quiz/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sport: sprintSport,
+          difficulty: sprintDifficulty,
+          count: 25,
+          category: sprintTournament !== "All Tournaments" && sprintTournament !== "All Events" && sprintTournament !== "All Grand Prix" ? sprintTournament : undefined,
+          mode: "sprint",
+          excludeStems: seenIds,
+        }),
+      });
+
+      const data = await res.json();
+      let pool: Question[] = [];
+
+      if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+        pool = data.questions;
+        const newStems = pool.map((item) => item.question.slice(0, 45));
+        markQuestionsSeen(newStems);
+      } else {
+        // Resilient local fallback if network or provider rate limits
+        pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25 });
+      }
+
+      setSprintQuestions(pool);
+      setIsGenerating(false);
+      // Start 3-2-1 countdown
+      setCountdown(3);
+    } catch {
+      const fallbackPool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25 });
+      setSprintQuestions(fallbackPool);
+      setIsGenerating(false);
+      setCountdown(3);
+    }
+  }, [user, openAuthModal, sprintSport, sprintDifficulty, sprintTournament]);
 
   // Countdown effect
   useEffect(() => {
     if (countdown === null) return;
     if (countdown === 0) {
-      const pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 60 });
-      start(pool, { sport: sprintSport, difficulty: sprintDifficulty, mode: "sprint" });
+      start(sprintQuestions, { sport: sprintSport, difficulty: sprintDifficulty, mode: "sprint" });
       setGameStarted(true);
       setCountdown(null);
       return;
@@ -97,7 +138,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       audio.tick();
     }, 800);
     return () => clearTimeout(timer);
-  }, [countdown, start, sprintSport, sprintDifficulty]);
+  }, [countdown, start, sprintQuestions, sprintSport, sprintDifficulty]);
 
   // Sprint countdown (60 seconds total)
   useEffect(() => {
@@ -249,9 +290,13 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
               Sport Category
             </label>
             <select
-              className="arena-input text-sm"
+              className="arena-input text-sm cursor-pointer"
               value={sprintSport}
-              onChange={(e) => setSprintSport(e.target.value as Sport | "All Sports")}
+              onChange={(e) => {
+                setSprintSport(e.target.value as Sport | "All Sports");
+                setSprintTournament("All Tournaments");
+                audio.tap();
+              }}
             >
               <option value="All Sports" className="bg-arena-panel">All Sports (Multi-Sport Sprint)</option>
               {SPORT_LIST.map((s) => (
@@ -261,6 +306,37 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
               ))}
             </select>
           </div>
+
+          {/* Tournament / League Selector */}
+          {sprintSport !== "All Sports" && TOURNAMENTS_BY_SPORT[sprintSport] && (
+            <div className="text-left mb-4">
+              <label className="block text-xs font-semibold text-arena-muted uppercase tracking-wider mb-1.5">
+                Tournament / League
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {TOURNAMENTS_BY_SPORT[sprintSport].map((t) => {
+                  const active = sprintTournament === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        setSprintTournament(t);
+                        audio.tap();
+                      }}
+                      className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-all border cursor-pointer ${
+                        active
+                          ? "bg-arena-accent/20 border-arena-accent text-arena-accent font-semibold shadow-[0_0_10px_rgba(0,212,255,0.2)]"
+                          : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text hover:bg-white/[.05]"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Difficulty Selector */}
           <div className="text-left mb-6">
@@ -273,7 +349,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
                   key={d}
                   type="button"
                   onClick={() => { setSprintDifficulty(d); audio.click(); }}
-                  className={`py-2 px-1 text-xs rounded-xl font-bold transition-all border text-center ${
+                  className={`py-2 px-1 text-xs rounded-xl font-bold transition-all border text-center cursor-pointer ${
                     sprintDifficulty === d
                       ? "bg-arena-accent/20 border-arena-accent text-arena-accent shadow-[0_0_15px_rgba(0,212,255,0.25)]"
                       : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text hover:border-white/20"
@@ -286,13 +362,23 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           </div>
 
           <motion.button
-            className="arena-btn arena-btn-primary text-base sm:text-lg w-full justify-center py-3.5 sm:py-4"
+            className="arena-btn arena-btn-primary text-base sm:text-lg w-full justify-center py-3.5 sm:py-4 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             onClick={startSprint}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            disabled={isGenerating}
+            whileHover={{ scale: isGenerating ? 1 : 1.02 }}
+            whileTap={{ scale: isGenerating ? 1 : 0.98 }}
           >
-            <Zap size={20} />
-            Start {sprintDifficulty} {sprintSport === "All Sports" ? "Sprint" : `${sprintSport} Sprint`}
+            {isGenerating ? (
+              <>
+                <Loader2 size={20} className="animate-spin text-arena-accent" />
+                Synthesizing 60s Blitz Trivia via Grok AI...
+              </>
+            ) : (
+              <>
+                <Zap size={20} />
+                Start {sprintDifficulty} {sprintSport === "All Sports" ? "Sprint" : `${sprintSport} Sprint`}
+              </>
+            )}
           </motion.button>
         </motion.div>
       </div>

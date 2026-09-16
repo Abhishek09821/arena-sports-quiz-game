@@ -13,6 +13,8 @@ export async function POST(req: Request) {
     const count = Math.min(Math.max(Number(body.count) || 10, 5), 30);
     const mode = body.mode || "classic";
     const category = body.category;
+    const excludeStems = Array.isArray(body.excludeStems) ? body.excludeStems : [];
+    const excludeAnswers = Array.isArray(body.excludeAnswers) ? body.excludeAnswers : [];
 
     const deck = await generatePersonalizedQuiz({
       userId: userAuth.userId,
@@ -21,6 +23,8 @@ export async function POST(req: Request) {
       count,
       mode,
       category,
+      excludeStems,
+      excludeAnswers,
     });
 
     return NextResponse.json({

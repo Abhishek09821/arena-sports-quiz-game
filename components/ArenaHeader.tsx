@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { audio } from "@/lib/audio";
-import { Gamepad2, Menu, X, User, LogOut, Shield, LogIn } from "lucide-react";
+import { Gamepad2, Menu, X, User, LogOut, Shield, LogIn, Volume2, VolumeX } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthContext";
@@ -19,7 +19,12 @@ export default function ArenaHeader() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const { user, profile, isAdmin, signOut, isLoading, openAuthModal, requireAuth } = useAuth();
+
+  useEffect(() => {
+    setSoundOn(audio.sfxEnabled);
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -81,6 +86,20 @@ export default function ArenaHeader() {
 
           {/* User Auth controls */}
           <div className="hidden sm:flex items-center gap-2">
+            {/* Sound Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = audio.toggle();
+                setSoundOn(next);
+              }}
+              className="w-8 h-8 rounded-lg border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.08] text-arena-muted hover:text-arena-text transition-colors cursor-pointer"
+              title={soundOn ? "Mute Sound FX" : "Enable Sound FX"}
+              aria-label="Toggle Sound"
+            >
+              {soundOn ? <Volume2 size={15} className="text-arena-accent" /> : <VolumeX size={15} className="text-arena-muted" />}
+            </button>
+
             {!isLoading && (
               <>
                 {isAdmin && (

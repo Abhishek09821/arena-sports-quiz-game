@@ -25,6 +25,7 @@ export async function POST(req: Request) {
         sport,
         difficulty,
         count: 1,
+        mode: "challenge",
         category,
         excludeStems,
         excludeAnswers,
