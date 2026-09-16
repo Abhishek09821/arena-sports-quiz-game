@@ -349,24 +349,27 @@ QUALITY & VERIFICATION RULES:
 6. NO DUPLICATES: Every question in this batch must be distinct.
 
 OUTPUT FORMAT:
-Respond ONLY with a valid JSON array of objects. Do not include markdown wraps (like \`\`\`json) or extra text.
-Each object must have these exact keys:
-[
-  {
-    "sport": "${sport === "All Sports" ? "Cricket" : sport}",
-    "difficulty": "Medium",
-    "category": "${category || "Sports Records"}",
-    "year": 2022,
-    "question": "Which player won the Player of the Tournament award in the 2022 ICC Men's T20 World Cup?",
-    "options": ["Sam Curran", "Virat Kohli", "Jos Buttler", "Shaheen Afridi"],
-    "answer": "Sam Curran",
-    "explanation": "Sam Curran took 13 wickets in the tournament and was named Player of the Tournament as England won the title."
-  }
-]`;
+Respond ONLY with a valid JSON object containing a single "questions" key with an array of question objects.
+Do not include markdown code fences (like \`\`\`json) or conversational text.
+Example format:
+{
+  "questions": [
+    {
+      "sport": "${sport === "All Sports" ? "Cricket" : sport}",
+      "difficulty": "Medium",
+      "category": "${category || "Sports Records"}",
+      "year": 2022,
+      "question": "Which player won the Player of the Tournament award in the 2022 ICC Men's T20 World Cup?",
+      "options": ["Sam Curran", "Virat Kohli", "Jos Buttler", "Shaheen Afridi"],
+      "answer": "Sam Curran",
+      "explanation": "Sam Curran took 13 wickets in the tournament and was named Player of the Tournament as England won the title."
+    }
+  ]
+}`;
 }
 
 /**
- * Clean and parse raw JSON text from AI response
+ * Clean and parse raw JSON text from AI response with multi-stage auto-repair
  */
 function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
   let cleaned = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
@@ -376,37 +379,94 @@ function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
   }
   cleaned = cleaned.trim();
 
+  // 1. Try parsing directly
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed as RawGeneratedQuestion[];
+    }
+    if (parsed && typeof parsed === "object") {
+      const arr = Object.values(parsed).find((v) => Array.isArray(v) && v.length > 0);
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr as RawGeneratedQuestion[];
+      }
+    }
+  } catch {
+    // Continue to slicing & auto-repair
+  }
+
+  // 2. Slice JSON object { "questions": [...] }
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    let slice = cleaned.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(slice);
+      const arr = Object.values(parsed).find((v) => Array.isArray(v) && v.length > 0);
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr as RawGeneratedQuestion[];
+      }
+    } catch {
+      // Auto-repair trailing commas: ,} or ,]
+      slice = slice.replace(/,\s*([}\]])/g, "$1");
+      // Fix misplaced quotes like "year": 2004",
+      slice = slice.replace(/"year":\s*(\d{4})",/g, '"year": $1,');
+      try {
+        const parsed = JSON.parse(slice);
+        const arr = Object.values(parsed).find((v) => Array.isArray(v) && v.length > 0);
+        if (Array.isArray(arr) && arr.length > 0) {
+          return arr as RawGeneratedQuestion[];
+        }
+      } catch {
+        // Fall through to array slice
+      }
+    }
+  }
+
+  // 3. Slice JSON array [ ... ]
   const firstBracket = cleaned.indexOf("[");
   const lastBracket = cleaned.lastIndexOf("]");
   if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-    const jsonSlice = cleaned.slice(firstBracket, lastBracket + 1);
+    let slice = cleaned.slice(firstBracket, lastBracket + 1);
     try {
-      const parsed = JSON.parse(jsonSlice);
+      const parsed = JSON.parse(slice);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed as RawGeneratedQuestion[];
       }
     } catch {
-      // Continue to object parse
-    }
-  }
-
-  // Check object with array value (e.g. {"questions": [...]})
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const jsonSlice = cleaned.slice(firstBrace, lastBrace + 1);
-    try {
-      const parsed = JSON.parse(jsonSlice);
-      const possibleArray = Object.values(parsed).find((v) => Array.isArray(v));
-      if (Array.isArray(possibleArray) && possibleArray.length > 0) {
-        return possibleArray as RawGeneratedQuestion[];
+      slice = slice.replace(/,\s*([}\]])/g, "$1");
+      slice = slice.replace(/"year":\s*(\d{4})",/g, '"year": $1,');
+      try {
+        const parsed = JSON.parse(slice);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as RawGeneratedQuestion[];
+        }
+      } catch {
+        // Fall through to regex extraction
       }
-    } catch {
-      // Fall through
     }
   }
 
-  throw new Error("AI response was not a valid JSON question array.");
+  // 4. Regex fallback: extract individual complete question objects from partial text
+  const objectRegex = /\{\s*"sport"[\s\S]*?"explanation"\s*:\s*"(?:\\.|[^"\\])*"\s*\}/g;
+  const matches = cleaned.match(objectRegex);
+  if (matches && matches.length > 0) {
+    const questions: RawGeneratedQuestion[] = [];
+    for (const m of matches) {
+      try {
+        const cleanItem = m.replace(/,\s*([}\]])/g, "$1").replace(/"year":\s*(\d{4})",/g, '"year": $1,');
+        const q = JSON.parse(cleanItem);
+        if (q.question && Array.isArray(q.options) && q.options.length === 4) {
+          questions.push(q);
+        }
+      } catch {}
+    }
+    if (questions.length > 0) {
+      return questions;
+    }
+  }
+
+  throw new Error("AI response was not a valid JSON question structure.");
 }
 
 /**
@@ -445,21 +505,21 @@ async function generateViaGemini(options: GenerateOptions, apiKey: string, model
 }
 
 /**
- * Internal single-batch caller for OpenAI-compatible REST APIs
+ * Generate questions via Groq / xAI / OpenAI-compatible REST API (Primary for 1v1 & 60s Blitz modes).
+ * Enforces response_format: { type: "json_object" } and reasoning_effort: "low" to prevent token exhaustion.
  */
-async function generateViaOpenAICompatibleSingle(
+async function generateViaOpenAICompatible(
   options: GenerateOptions,
   baseUrl: string,
   apiKey: string,
   preferredModel: string
 ): Promise<RawGeneratedQuestion[]> {
+  // Candidate models supported on Groq
   const candidateModels = [
     preferredModel,
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
     "qwen/qwen3.8-27b",
-    "llama-3.1-8b-instant",
   ].filter((m, i, arr) => m && arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
@@ -468,20 +528,31 @@ async function generateViaOpenAICompatibleSingle(
     try {
       const prompt = buildPrompt(options);
       const isReasoningModel = model.includes("gpt-oss") || model.includes("o1") || model.includes("o3");
+      const isGroq = baseUrl.includes("groq.com");
+
+      // Give generous token budget so output never truncates
+      const tokenBudget = Math.min(Math.max(options.count * 320, 2000), 8000);
+
       const payload: Record<string, any> = {
         model,
         messages: [
           {
             role: "system",
             content:
-              "You are an expert sports trivia engine and competition archivist. You output ONLY valid JSON arrays containing sports trivia question objects. Never include markdown code fences or conversational text.",
+              'You are an expert sports trivia engine and competition archivist. You output ONLY valid JSON objects with format {"questions": [...]}. Never include markdown code fences or conversational text.',
           },
           { role: "user", content: prompt },
         ],
         temperature: 0.2,
-        max_tokens: Math.min(Math.max(options.count * 200, 800), 2200),
+        max_tokens: tokenBudget,
       };
 
+      // Native JSON enforcement
+      if (isGroq || baseUrl.includes("openai") || baseUrl.includes("x.ai")) {
+        payload.response_format = { type: "json_object" };
+      }
+
+      // Restrict reasoning tokens to minimal so tokens are spent on question content
       if (isReasoningModel) {
         payload.reasoning_effort = "low";
       }
@@ -504,73 +575,28 @@ async function generateViaOpenAICompatibleSingle(
           errorText.includes("model_not_found") ||
           errorText.includes("OTPM")
         ) {
-          // Model unavailable or rate-limited; gracefully advance to candidate model
+          // Model unavailable or rate-limited; advance to next candidate
           continue;
         }
         throw new Error(`AI API error (${response.status}): ${errorText.slice(0, 200)}`);
       }
 
       const data = await response.json();
-      const choice0 = data?.choices?.[0]?.message;
-      const content = choice0?.content;
+      const content = data?.choices?.[0]?.message?.content;
       if (!content) {
         continue;
       }
 
-      return parseAIJsonResponse(content);
+      const parsed = parseAIJsonResponse(content);
+      if (parsed && parsed.length > 0) {
+        return parsed;
+      }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
 
   throw lastError || new Error("Failed to generate questions via AI provider");
-}
-
-/**
- * Generate questions via Groq / xAI / OpenAI-compatible REST API (Primary for 1v1 & 60s Blitz modes).
- * Supports parallel chunking for counts > 8 to guarantee fast, non-truncated generation.
- */
-async function generateViaOpenAICompatible(
-  options: GenerateOptions,
-  baseUrl: string,
-  apiKey: string,
-  model: string
-): Promise<RawGeneratedQuestion[]> {
-  if (options.count > 8) {
-    const chunks: number[] = [];
-    let remaining = options.count;
-    while (remaining > 0) {
-      const take = Math.min(remaining, 8);
-      chunks.push(take);
-      remaining -= take;
-    }
-
-    try {
-      const results = await Promise.all(
-        chunks.map((batchCount) =>
-          generateViaOpenAICompatibleSingle({ ...options, count: batchCount }, baseUrl, apiKey, model)
-        )
-      );
-      const combined: RawGeneratedQuestion[] = [];
-      const seen = new Set<string>();
-      for (const batch of results) {
-        for (const q of batch) {
-          const norm = q.question.toLowerCase().replace(/[^a-z0-9]/g, "");
-          if (!seen.has(norm)) {
-            seen.add(norm);
-            combined.push(q);
-          }
-        }
-      }
-      if (combined.length >= Math.floor(options.count * 0.7)) {
-        return combined;
-      }
-    } catch {
-      // Fall through to single batch
-    }
-  }
-
-  return generateViaOpenAICompatibleSingle(options, baseUrl, apiKey, model);
 }
 
 /**
@@ -717,14 +743,14 @@ export async function generateAIQuestions(options: GenerateOptions): Promise<Raw
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
   const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
+  const groqModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
   // 1. 1v1 Multiplayer & 60s Sprint -> Routed to Grok / Groq API
   if (mode === "multiplayer" || mode === "sprint") {
     // Try Groq API first (free high-speed inference)
     if (groqKey) {
       try {
-        const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, model);
+        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
       } catch (err) {
         console.warn(`[AI Generator - Grok] Groq API warning: ${err instanceof Error ? err.message : String(err)}. Checking fallback.`);
       }
@@ -751,24 +777,23 @@ export async function generateAIQuestions(options: GenerateOptions): Promise<Raw
     }
   }
 
-  // 2. Classic & Challenge Modes -> Routed to Google Gemini
+  // 2. Classic & Challenge Modes -> Routed to Google Gemini with automatic Groq failover
   if (mode === "classic" || mode === "challenge" || !mode) {
     if (geminiKey) {
       try {
         const model = process.env.AI_MODEL || "gemini-2.5-flash";
         return await generateViaGemini(options, geminiKey, model);
       } catch (err) {
-        console.warn(`[AI Generator - Gemini] Gemini API notice: ${err instanceof Error ? err.message : String(err)}. Engaging backup.`);
+        console.warn(`[AI Generator - Gemini] Gemini API notice: ${err instanceof Error ? err.message : String(err)}. Engaging Groq AI backup.`);
       }
     }
 
-    // Grok backup for Classic/Challenge if Gemini fails
+    // Grok backup for Classic/Challenge if Gemini is rate limited (429) or unavailable
     if (groqKey) {
       try {
-        const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, model);
-      } catch {
-        // Continue to fallback
+        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
+      } catch (err) {
+        console.warn(`[AI Generator - Groq Backup]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
