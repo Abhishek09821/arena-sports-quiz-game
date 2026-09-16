@@ -91,6 +91,17 @@ export default function MultiplayerPage() {
   questionsRef.current = questions;
   const currentQRef = useRef<number>(currentQ);
   currentQRef.current = currentQ;
+  const buzzWinnerRef = useRef<string | null>(buzzWinner);
+  buzzWinnerRef.current = buzzWinner;
+  const showAnswerRef = useRef<boolean>(showAnswer);
+  showAnswerRef.current = showAnswer;
+  const timedOutRef = useRef<boolean>(timedOut);
+  timedOutRef.current = timedOut;
+  const questionTimeRef = useRef<number>(questionTime);
+  questionTimeRef.current = questionTime;
+  const answerTimeRef = useRef<number>(answerTime);
+  answerTimeRef.current = answerTime;
+  const nextQTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase extends null ? never : NonNullable<typeof supabase>["channel"]> | null>(null);
 
   const addEvent = useCallback((msg: string) => {
@@ -469,6 +480,31 @@ export default function MultiplayerPage() {
         addEvent("Match started! Rapid buzzer active.");
         audio.click();
       })
+      .on("broadcast", { event: "timer_tick" }, ({ payload }) => {
+        // Authoritative tick sent by Host received by Guest
+        if (!isHostRef.current) {
+          setQuestionTime(payload.questionTime);
+          setAnswerTime(payload.answerTime);
+          if (typeof payload.currentQ === "number" && payload.currentQ !== currentQRef.current) {
+            setCurrentQ(payload.currentQ);
+          }
+          if (payload.phase === "question") {
+            if (payload.questionTime <= 6 && payload.questionTime > 2) {
+              audio.tick();
+            } else if (payload.questionTime === 2) {
+              audio.urgentTick();
+            }
+          } else if (payload.phase === "answer") {
+            if (buzzWinnerRef.current === myIdRef.current) {
+              if (payload.answerTime <= 3 && payload.answerTime > 0) {
+                audio.urgentTick();
+              } else if (payload.answerTime > 0) {
+                audio.tick();
+              }
+            }
+          }
+        }
+      })
       .on("broadcast", { event: "buzz" }, ({ payload }) => {
         setBuzzWinner((currentWinner) => {
           if (!currentWinner) {
@@ -483,31 +519,6 @@ export default function MultiplayerPage() {
           }
           return currentWinner;
         });
-      })
-      .on("broadcast", { event: "question_timeout" }, () => {
-        setTimedOut(true);
-        setShowAnswer(true);
-        audio.timeout();
-        addEvent("Time expired — no one buzzed!");
-
-        setTimeout(() => {
-          setBuzzWinner(null);
-          setMyBuzzed(false);
-          setSelectedAnswer(null);
-          setShowAnswer(false);
-          setTimedOut(false);
-          setQuestionTime(15);
-          setAnswerTime(8);
-          setCurrentQ((prev) => {
-            const nextQ = prev + 1;
-            const total = questionsRef.current.length || 10;
-            if (nextQ >= total) {
-              setStatus("finished");
-              audio.roundComplete();
-            }
-            return nextQ;
-          });
-        }, 2500);
       })
       .on("broadcast", { event: "answer" }, ({ payload }) => {
         setShowAnswer(true);
@@ -531,37 +542,81 @@ export default function MultiplayerPage() {
             : `${payload.name} got it wrong.`
         );
 
-        // Auto-advance after delay
-        setTimeout(() => {
-          setBuzzWinner(null);
-          setMyBuzzed(false);
-          setSelectedAnswer(null);
-          setShowAnswer(false);
-          setTimedOut(false);
-          setQuestionTime(15);
-          setAnswerTime(8);
-          setCurrentQ((prev) => {
-            const nextQ = prev + 1;
+        // ONLY the Host orchestrates next question delay
+        if (isHostRef.current) {
+          if (nextQTimeoutRef.current) clearTimeout(nextQTimeoutRef.current);
+          nextQTimeoutRef.current = setTimeout(() => {
+            const nextQ = currentQRef.current + 1;
             const total = questionsRef.current.length || 10;
             if (nextQ >= total) {
+              channelRef.current?.send({
+                type: "broadcast",
+                event: "match_finished",
+              });
               setStatus("finished");
               audio.roundComplete();
-
-              // Sync score to Supabase
-              fetch("/api/multiplayer/player", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  roomCode,
-                  playerToken: myIdRef.current,
-                  score: myScore,
-                  status: "finished",
-                }),
-              }).catch(() => {});
+            } else {
+              channelRef.current?.send({
+                type: "broadcast",
+                event: "next_question",
+                payload: { nextQ },
+              });
             }
-            return nextQ;
-          });
-        }, 2500);
+          }, 2400);
+        }
+      })
+      .on("broadcast", { event: "question_timeout" }, () => {
+        setTimedOut(true);
+        setShowAnswer(true);
+        audio.timeout();
+        addEvent("Time expired — no one buzzed!");
+
+        // ONLY the Host orchestrates next question delay
+        if (isHostRef.current) {
+          if (nextQTimeoutRef.current) clearTimeout(nextQTimeoutRef.current);
+          nextQTimeoutRef.current = setTimeout(() => {
+            const nextQ = currentQRef.current + 1;
+            const total = questionsRef.current.length || 10;
+            if (nextQ >= total) {
+              channelRef.current?.send({
+                type: "broadcast",
+                event: "match_finished",
+              });
+              setStatus("finished");
+              audio.roundComplete();
+            } else {
+              channelRef.current?.send({
+                type: "broadcast",
+                event: "next_question",
+                payload: { nextQ },
+              });
+            }
+          }, 2400);
+        }
+      })
+      .on("broadcast", { event: "next_question" }, ({ payload }) => {
+        setCurrentQ(payload.nextQ);
+        setBuzzWinner(null);
+        setMyBuzzed(false);
+        setSelectedAnswer(null);
+        setShowAnswer(false);
+        setTimedOut(false);
+        setQuestionTime(15);
+        setAnswerTime(8);
+      })
+      .on("broadcast", { event: "match_finished" }, () => {
+        setStatus("finished");
+        audio.roundComplete();
+        fetch("/api/multiplayer/player", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomCode,
+            playerToken: myIdRef.current,
+            score: myScore,
+            status: "finished",
+          }),
+        }).catch(() => {});
       })
       .on("broadcast", { event: "disconnect" }, ({ payload }) => {
         setPlayers((prev) => ({
@@ -646,98 +701,91 @@ export default function MultiplayerPage() {
     });
   }, [questions, currentQ]);
 
-  // 15s Question Buzzer Timer
+  // Authoritative Match Timer (Runs strictly on HOST to eliminate clock drift & double transitions)
   useEffect(() => {
-    if (status !== "playing" || buzzWinner || showAnswer || timedOut) return;
+    if (!isHost || status !== "playing") return;
 
     const timer = setInterval(() => {
-      setQuestionTime((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          if (isHostRef.current) {
-            channelRef.current?.send({
-              type: "broadcast",
-              event: "question_timeout",
-            });
-          }
-          setTimedOut(true);
-          setShowAnswer(true);
-          audio.timeout();
-          addEvent("Time expired — no one buzzed!");
+      // Don't tick while showing answer / transition results
+      if (showAnswerRef.current || timedOutRef.current) return;
 
-          setTimeout(() => {
-            setBuzzWinner(null);
-            setMyBuzzed(false);
-            setSelectedAnswer(null);
-            setShowAnswer(false);
-            setTimedOut(false);
-            setQuestionTime(15);
-            setAnswerTime(8);
-            setCurrentQ((q) => {
-              const nextQ = q + 1;
-              const total = questionsRef.current.length || 10;
-              if (nextQ >= total) {
-                setStatus("finished");
-                audio.roundComplete();
-              }
-              return nextQ;
-            });
-          }, 2500);
+      if (!buzzWinnerRef.current) {
+        // Question buzzer countdown (15s)
+        const current = questionTimeRef.current;
+        const nextTime = Math.max(0, current - 1);
+        setQuestionTime(nextTime);
 
-          return 0;
+        // Broadcast authoritative tick to guest
+        channelRef.current?.send({
+          type: "broadcast",
+          event: "timer_tick",
+          payload: {
+            questionTime: nextTime,
+            answerTime: 8,
+            currentQ: currentQRef.current,
+            phase: "question",
+          },
+        });
+
+        if (nextTime <= 0) {
+          channelRef.current?.send({
+            type: "broadcast",
+            event: "question_timeout",
+          });
+          return;
         }
 
-        if (prev <= 6 && prev > 2) {
+        if (nextTime <= 6 && nextTime > 2) {
           audio.tick();
-        } else if (prev === 2) {
+        } else if (nextTime === 2) {
           audio.urgentTick();
         }
-        return prev - 1;
-      });
-    }, 1000);
+      } else {
+        // Answer selection countdown (8s)
+        const current = answerTimeRef.current;
+        const nextTime = Math.max(0, current - 1);
+        setAnswerTime(nextTime);
 
-    return () => clearInterval(timer);
-  }, [status, buzzWinner, showAnswer, timedOut, addEvent]);
+        // Broadcast authoritative tick to guest
+        channelRef.current?.send({
+          type: "broadcast",
+          event: "timer_tick",
+          payload: {
+            questionTime: questionTimeRef.current,
+            answerTime: nextTime,
+            currentQ: currentQRef.current,
+            phase: "answer",
+          },
+        });
 
-  // 8s Answer Timer for Buzzer Winner
-  useEffect(() => {
-    if (status !== "playing" || !buzzWinner || showAnswer || timedOut) return;
-
-    const timer = setInterval(() => {
-      setAnswerTime((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          // If this client is the buzz winner, auto-submit timeout
-          if (buzzWinner === myIdRef.current) {
-            audio.timeout();
-            addEvent("Time expired! You didn't select an answer in 8s.");
-            channelRef.current?.send({
-              type: "broadcast",
-              event: "answer",
-              payload: {
-                id: myIdRef.current,
-                name: nameRef.current,
-                answer: -1,
-                correct: false,
-              },
-            });
-          }
-          return 0;
+        if (nextTime <= 0) {
+          // Buzz winner ran out of time
+          const winnerId = buzzWinnerRef.current;
+          channelRef.current?.send({
+            type: "broadcast",
+            event: "answer",
+            payload: {
+              id: winnerId,
+              name: players[winnerId || ""]?.name || "Player",
+              answer: -1,
+              correct: false,
+            },
+          });
+          return;
         }
 
-        if (buzzWinner === myIdRef.current) {
-          if (prev <= 3) {
+        if (buzzWinnerRef.current === myIdRef.current) {
+          if (nextTime <= 3 && nextTime > 0) {
             audio.urgentTick();
-          } else {
+          } else if (nextTime > 0) {
             audio.tick();
           }
         }
-        return prev - 1;
-      });
+      }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status, buzzWinner, showAnswer, timedOut, addEvent]);
+  }, [isHost, status, players]);
 
   // Keyboard Spacebar shortcut to Buzz
   useEffect(() => {
