@@ -4,6 +4,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { Question, Sport, Difficulty } from "@/data/questions";
 import { scoreAnswer } from "@/lib/scoring";
 
@@ -62,8 +63,10 @@ interface GameState {
   setSessionId: (id: string) => void;
 }
 
-export const useQuizStore = create<GameState>((set, get) => ({
-  // Initial state
+export const useQuizStore = create<GameState>()(
+  persist(
+    (set, get) => ({
+      // Initial state
   sessionId: null,
   questions: [],
   mode: "classic",
@@ -170,4 +173,30 @@ export const useQuizStore = create<GameState>((set, get) => ({
     set((s) => ({ questionsAttempted: s.questionsAttempted + 1 })),
 
   setSessionId: (id: string) => set({ sessionId: id }),
-}));
+    }),
+    {
+      name: "arena_quiz_session",
+      storage: createJSONStorage(() => (typeof window !== "undefined" ? sessionStorage : {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+      })),
+      partialize: (state) => ({
+        sessionId: state.sessionId,
+        questions: state.questions,
+        mode: state.mode,
+        sport: state.sport,
+        difficulty: state.difficulty,
+        roundCount: state.roundCount,
+        index: state.index,
+        score: state.score,
+        streak: state.streak,
+        bestStreak: state.bestStreak,
+        correct: state.correct,
+        wrong: state.wrong,
+        answerHistory: state.answerHistory,
+        totalTimeTaken: state.totalTimeTaken,
+      }),
+    }
+  )
+);

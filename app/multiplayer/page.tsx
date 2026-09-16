@@ -30,6 +30,23 @@ function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
+function getPlayerToken(): string {
+  if (typeof window === "undefined") return "usr_" + Math.random().toString(36).slice(2, 10);
+  let t = sessionStorage.getItem("arena_mp_token");
+  if (!t) {
+    t = "usr_" + Math.random().toString(36).slice(2, 10);
+    sessionStorage.setItem("arena_mp_token", t);
+  }
+  return t;
+}
+
+interface StoredMPSession {
+  roomCode: string;
+  playerToken: string;
+  playerName: string;
+  role: "host" | "guest";
+}
+
 export default function MultiplayerPage() {
   const [name, setName] = useState("Player 1");
   const [codeInput, setCodeInput] = useState("");
@@ -46,6 +63,7 @@ export default function MultiplayerPage() {
   const [opponentScore, setOpponentScore] = useState(0);
   const [events, setEvents] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
+  const [isHost, setIsHost] = useState(false);
 
   // New customization state for 1v1 Arena
   const [selectedSport, setSelectedSport] = useState<Sport | "All Sports">("All Sports");
@@ -56,12 +74,109 @@ export default function MultiplayerPage() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [roomSettings, setRoomSettings] = useState<{ sport: string; difficulty: string; hostName: string } | null>(null);
 
-  const myIdRef = useRef(Math.random().toString(36).slice(2, 10));
+  const myIdRef = useRef<string>("usr_init");
   const channelRef = useRef<ReturnType<typeof supabase extends null ? never : NonNullable<typeof supabase>["channel"]> | null>(null);
 
   const addEvent = useCallback((msg: string) => {
     setEvents((prev) => [msg, ...prev].slice(0, 8));
   }, []);
+
+  // Sync state directly from Supabase database
+  const syncRoomState = useCallback(async (code: string, token: string) => {
+    if (!code) return;
+    try {
+      const res = await fetch(`/api/multiplayer/room?code=${code}`);
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.room) {
+        return;
+      }
+
+      // Sync questions
+      if (data.questions && data.questions.length > 0) {
+        setQuestions(data.questions);
+      }
+
+      // Sync room settings
+      if (data.room.settings) {
+        setRoomSettings({
+          sport: data.sport || "All Sports",
+          difficulty: data.difficulty || "Mixed",
+          hostName: data.hostName || "Host",
+        });
+      }
+
+      // Sync players list
+      if (Array.isArray(data.players)) {
+        const playerMap: Record<string, PlayerState> = {};
+        for (const p of data.players) {
+          playerMap[p.player_token] = {
+            name: p.display_name,
+            score: p.score || 0,
+            ready: true,
+            connected: p.connected,
+          };
+        }
+        setPlayers(playerMap);
+
+        // Update scores
+        const me = data.players.find((p: { player_token: string }) => p.player_token === token);
+        const opp = data.players.find((p: { player_token: string }) => p.player_token !== token);
+        if (me) setMyScore(me.score || 0);
+        if (opp) setOpponentScore(opp.score || 0);
+
+        // Determine host role
+        if (data.players[0]?.player_token === token) {
+          setIsHost(true);
+        }
+      }
+
+      // Sync room status
+      const remoteStatus = data.room.status;
+      if (remoteStatus === "playing") {
+        setStatus("playing");
+      } else if (remoteStatus === "finished") {
+        setStatus("finished");
+      } else if (remoteStatus === "ready" || remoteStatus === "waiting") {
+        setStatus("lobby");
+      }
+    } catch (err) {
+      console.warn("[Multiplayer Sync] Error fetching room state:", err);
+    }
+  }, []);
+
+  // Auto-restore multiplayer session across browser reloads
+  useEffect(() => {
+    myIdRef.current = getPlayerToken();
+    const saved = typeof window !== "undefined" ? sessionStorage.getItem("arena_mp_session") : null;
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved) as StoredMPSession;
+      if (parsed.roomCode && parsed.playerToken) {
+        myIdRef.current = parsed.playerToken;
+        if (parsed.playerName) setName(parsed.playerName);
+        setRoomCode(parsed.roomCode);
+        setCodeInput(parsed.roomCode);
+        setIsHost(parsed.role === "host");
+        setStatus("lobby");
+        addEvent(`Session restored. Reconnected to room ${parsed.roomCode}.`);
+        void syncRoomState(parsed.roomCode, parsed.playerToken);
+      }
+    } catch {
+      sessionStorage.removeItem("arena_mp_session");
+    }
+  }, [syncRoomState, addEvent]);
+
+  // Periodic heartbeat polling to ensure both players are 100% synchronized
+  useEffect(() => {
+    if (!roomCode || status === "idle" || status === "finished") return;
+
+    const interval = setInterval(() => {
+      void syncRoomState(roomCode, myIdRef.current);
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, [roomCode, status, syncRoomState]);
 
   // Create room with difficulty and sport stored in Supabase
   const createRoom = useCallback(async () => {
@@ -69,8 +184,8 @@ export default function MultiplayerPage() {
     const code = generateRoomCode();
     setRoomCode(code);
     setCodeInput(code);
+    setIsHost(true);
 
-    // Generate questions for this room with the chosen sport and difficulty
     const qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
     setQuestions(qs);
     setRoomSettings({
@@ -80,7 +195,6 @@ export default function MultiplayerPage() {
     });
 
     try {
-      // Persist to Supabase game_rooms and game_players
       await fetch("/api/multiplayer/room", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,63 +208,126 @@ export default function MultiplayerPage() {
           playerToken: myIdRef.current,
         }),
       });
+
+      // Save active session for reload recovery
+      sessionStorage.setItem(
+        "arena_mp_session",
+        JSON.stringify({
+          roomCode: code,
+          playerToken: myIdRef.current,
+          playerName: name || "Host",
+          role: "host",
+        })
+      );
     } catch (err) {
       console.warn("[Multiplayer] Supabase room persist notice:", err);
     } finally {
       setIsCreating(false);
       setStatus("lobby");
-      addEvent(`Room created (${selectedDifficulty} • ${selectedSport}). Share the code.`);
+      addEvent(`Room created (${selectedDifficulty} • ${selectedSport}). Share code: ${code}`);
       trackEvent("room_created", { code, sport: selectedSport, difficulty: selectedDifficulty });
       audio.select();
     }
   }, [name, selectedSport, selectedDifficulty, selectedCount, addEvent]);
 
-  // Join room and load settings from Supabase
+  // Join room with strict capacity enforcement
   const joinRoom = useCallback(async () => {
     const code = codeInput.trim().toUpperCase();
     if (!code) return;
     setIsJoining(true);
     setJoinError(null);
-    setRoomCode(code);
-    addEvent("Joining room...");
     audio.select();
 
     try {
-      // 1. Fetch room from Supabase
+      // 1. Register this player in Supabase (enforces max 2 players and deduplication)
+      const joinRes = await fetch("/api/multiplayer/player", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomCode: code,
+          playerName: name || "Player 2",
+          playerToken: myIdRef.current,
+        }),
+      });
+
+      const joinData = await joinRes.json();
+      if (!joinRes.ok) {
+        setJoinError(joinData.error || "Cannot join room. Verify the code.");
+        audio.wrong();
+        setIsJoining(false);
+        return;
+      }
+
+      // 2. Fetch room details and questions
       const res = await fetch(`/api/multiplayer/room?code=${code}`);
       const data = await res.json();
 
       if (res.ok && data.success && data.questions?.length) {
         setQuestions(data.questions);
+        setRoomCode(code);
+        setIsHost(Boolean(joinData.isHost));
         setRoomSettings({
           hostName: data.hostName || "Host",
           sport: data.sport || "All Sports",
           difficulty: data.difficulty || "Mixed",
         });
 
-        // 2. Register this player in Supabase
-        await fetch("/api/multiplayer/player", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        // Save session for reload resilience
+        sessionStorage.setItem(
+          "arena_mp_session",
+          JSON.stringify({
             roomCode: code,
-            playerName: name || "Player 2",
             playerToken: myIdRef.current,
-          }),
-        });
-      } else if (!res.ok) {
-        setJoinError(data.error || "Room not found. Check the code.");
+            playerName: name || "Player 2",
+            role: joinData.isHost ? "host" : "guest",
+          })
+        );
+
+        setStatus("lobby");
+        addEvent(`Joined room ${code}. Ready for match.`);
+        trackEvent("room_joined", { code });
+        audio.correct();
+      } else {
+        setJoinError(data.error || "Failed to load room questions.");
+        audio.wrong();
       }
     } catch (err) {
-      console.warn("[Multiplayer] Supabase load error, falling back to Realtime sync:", err);
+      setJoinError(err instanceof Error ? err.message : "Failed to join room.");
+      audio.wrong();
     } finally {
       setIsJoining(false);
-      setStatus("lobby");
-      trackEvent("room_joined", { code });
     }
   }, [codeInput, name, addEvent]);
 
-  // Connect to Supabase Realtime channel
+  // Leave room and clean session
+  const leaveRoom = useCallback(async () => {
+    audio.click();
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("arena_mp_session");
+    }
+    if (roomCode) {
+      try {
+        await fetch("/api/multiplayer/player", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomCode, playerToken: myIdRef.current, connected: false }),
+        });
+      } catch {}
+    }
+    channelRef.current?.unsubscribe();
+    channelRef.current = null;
+    setStatus("idle");
+    setRoomCode("");
+    setCodeInput("");
+    setPlayers({});
+    setMyScore(0);
+    setOpponentScore(0);
+    setCurrentQ(0);
+    setJoinError(null);
+    setIsHost(false);
+  }, [roomCode]);
+
+  // Connect to Supabase Realtime channel for instant buzzers and answer feedback
   useEffect(() => {
     if (!supabase || !roomCode || status === "idle") return;
 
@@ -165,18 +342,11 @@ export default function MultiplayerPage() {
         if (payload.id !== myIdRef.current) {
           setPlayers((prev) => ({
             ...prev,
-            [payload.id]: { name: payload.name, score: 0, ready: false, connected: true },
+            [payload.id]: { name: payload.name, score: 0, ready: true, connected: true },
           }));
           addEvent(`${payload.name} joined`);
           audio.opponentJoined();
         }
-      })
-      .on("broadcast", { event: "player_ready" }, ({ payload }) => {
-        setPlayers((prev) => ({
-          ...prev,
-          [payload.id]: { ...prev[payload.id], ready: true },
-        }));
-        addEvent(`${payload.name} is ready`);
       })
       .on("broadcast", { event: "game_start" }, ({ payload }) => {
         if (payload.questions) {
@@ -188,7 +358,7 @@ export default function MultiplayerPage() {
         setMyBuzzed(false);
         setSelectedAnswer(null);
         setShowAnswer(false);
-        addEvent("Game started!");
+        addEvent("Match started! Rapid buzzer active.");
         audio.click();
       })
       .on("broadcast", { event: "buzz" }, ({ payload }) => {
@@ -254,8 +424,8 @@ export default function MultiplayerPage() {
         }));
         addEvent(`${payload.name} disconnected`);
       })
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
+      .subscribe((subStatus) => {
+        if (subStatus === "SUBSCRIBED") {
           setConnected(true);
           // Announce ourselves
           channel.send({
@@ -265,7 +435,7 @@ export default function MultiplayerPage() {
           });
           setPlayers((prev) => ({
             ...prev,
-            [myIdRef.current]: { name, score: 0, ready: false, connected: true },
+            [myIdRef.current]: { name, score: 0, ready: true, connected: true },
           }));
         }
       });
@@ -280,33 +450,30 @@ export default function MultiplayerPage() {
       channelRef.current = null;
       setConnected(false);
     };
-  }, [roomCode, status, name, addEvent, questions.length, myScore]);
+  }, [roomCode, status, name, addEvent, questions.length, myScore, buzzWinner]);
 
-  const sendReady = () => {
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "player_ready",
-      payload: { id: myIdRef.current, name },
-    });
-    setPlayers((prev) => ({
-      ...prev,
-      [myIdRef.current]: { ...prev[myIdRef.current], ready: true },
-    }));
-    audio.select();
-  };
-
-  const startGame = () => {
+  const startGame = async () => {
+    audio.click();
+    // 1. Broadcast immediate start
     channelRef.current?.send({
       type: "broadcast",
       event: "game_start",
       payload: { questions },
     });
-    // Mark room live in Supabase
-    fetch("/api/multiplayer/player", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomCode, status: "live" }),
-    }).catch(() => {});
+    // 2. Persist room status in Supabase
+    try {
+      await fetch("/api/multiplayer/player", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomCode, status: "playing", currentRound: 0 }),
+      });
+    } catch {}
+    setStatus("playing");
+    setCurrentQ(0);
+    setBuzzWinner(null);
+    setMyBuzzed(false);
+    setSelectedAnswer(null);
+    setShowAnswer(false);
   };
 
   const buzz = () => {
@@ -320,9 +487,9 @@ export default function MultiplayerPage() {
   };
 
   const submitAnswer = (answer: number) => {
-    const q = questions[currentQ];
-    if (!q) return;
-    const correct = answer === q.answer;
+    const currentQuestion = questions[currentQ];
+    if (!currentQuestion) return;
+    const correct = answer === currentQuestion.answer;
     channelRef.current?.send({
       type: "broadcast",
       event: "answer",
@@ -337,7 +504,6 @@ export default function MultiplayerPage() {
   };
 
   const playerCount = Object.keys(players).length;
-  const allReady = playerCount >= 2 && Object.values(players).every((p) => p.ready);
   const q = questions[currentQ];
   const iAmBuzzWinner = buzzWinner === myIdRef.current;
 
@@ -574,13 +740,13 @@ export default function MultiplayerPage() {
     return (
       <main className="arena-container pb-16">
         <div className="pt-10 pb-6">
-          <Link
-            href="/multiplayer"
+          <button
+            type="button"
             className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors"
-            onClick={() => setStatus("idle")}
+            onClick={leaveRoom}
           >
-            <ArrowLeft size={15} /> Back
-          </Link>
+            <ArrowLeft size={15} /> Leave Room
+          </button>
         </div>
 
         <div className="max-w-lg mx-auto">
@@ -590,7 +756,7 @@ export default function MultiplayerPage() {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.4 }}
           >
-            <div className="arena-eyebrow mb-3 justify-center">Room Code</div>
+            <div className="arena-eyebrow mb-3 justify-center">1v1 Room Code</div>
 
             {/* Glowing room code */}
             <div className="font-display text-5xl font-bold tracking-[0.16em] mb-5 arena-glow-halo inline-block">
@@ -626,13 +792,17 @@ export default function MultiplayerPage() {
                   <WifiOff size={14} className="text-arena-bad" />
                 )}
                 <span className="text-sm text-arena-muted">
-                  {connected ? "Connected" : "Connecting..."}
+                  {connected ? "Realtime Synced" : "Connecting..."}
                 </span>
               </div>
 
-              <div className="text-sm font-semibold mb-3">
-                Players ({playerCount}/2)
+              <div className="text-sm font-semibold mb-3 flex items-center justify-between">
+                <span>Players in Room</span>
+                <span className={playerCount >= 2 ? "text-arena-good font-bold" : "text-arena-warn"}>
+                  {playerCount}/2 {playerCount >= 2 ? "(Ready!)" : "(Waiting for opponent...)"}
+                </span>
               </div>
+
               <div className="grid gap-2">
                 {Object.entries(players).map(([id, p]) => (
                   <motion.div
@@ -657,41 +827,47 @@ export default function MultiplayerPage() {
                         {id === myIdRef.current ? " (you)" : ""}
                       </span>
                     </div>
-                    <span
-                      className={`text-sm font-semibold ${
-                        p.ready ? "text-arena-good" : "text-arena-muted"
-                      }`}
-                    >
-                      {p.ready ? "Ready ✓" : "Waiting..."}
+                    <span className="text-xs font-semibold text-arena-good flex items-center gap-1">
+                      <Check size={13} /> Ready
                     </span>
                   </motion.div>
                 ))}
+
+                {playerCount < 2 && (
+                  <div className="p-3.5 rounded-xl border border-dashed border-arena-line text-xs text-arena-muted text-center flex items-center justify-center gap-2">
+                    <Loader2 size={14} className="animate-spin text-arena-accent" />
+                    Share code <span className="font-mono text-arena-accent font-bold">{roomCode}</span> with your opponent to join!
+                  </div>
+                )}
               </div>
 
-              <div className="flex gap-2 justify-center mt-6">
-                {!players[myIdRef.current]?.ready && (
-                  <motion.button
-                    className="arena-btn arena-btn-primary"
-                    onClick={sendReady}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    I&apos;m Ready
-                  </motion.button>
-                )}
-                {allReady && (
-                  <motion.button
-                    className="arena-btn arena-btn-primary"
-                    onClick={startGame}
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    <Swords size={16} />
-                    Start Game
-                  </motion.button>
-                )}
+              <div className="mt-6 space-y-2">
+                {playerCount >= 2 ? (
+                  isHost ? (
+                    <motion.button
+                      className="arena-btn arena-btn-primary w-full justify-center py-3.5 text-base font-bold shadow-[0_0_20px_rgba(0,212,255,0.3)]"
+                      onClick={startGame}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      <Swords size={18} />
+                      Start 1v1 Match Now
+                    </motion.button>
+                  ) : (
+                    <div className="text-center py-3 px-4 rounded-xl bg-arena-accent/10 border border-arena-accent/30 text-arena-accent text-sm font-semibold">
+                      <Sparkles size={16} className="inline mr-2 align-[-2px] animate-pulse" />
+                      Both players connected! Waiting for Host to start match...
+                    </div>
+                  )
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={leaveRoom}
+                  className="arena-btn arena-btn-ghost text-xs text-arena-muted hover:text-arena-bad w-full justify-center"
+                >
+                  Leave Room
+                </button>
               </div>
             </div>
 
@@ -898,23 +1074,18 @@ export default function MultiplayerPage() {
             <div className="flex gap-3 justify-center flex-wrap">
               <motion.button
                 className="arena-btn arena-btn-primary"
-                onClick={() => {
-                  setStatus("idle");
-                  setMyScore(0);
-                  setOpponentScore(0);
-                  setPlayers({});
-                  setEvents([]);
-                  setCurrentQ(0);
-                  setRoomCode("");
-                  audio.click();
-                }}
+                onClick={leaveRoom}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
               >
                 <Swords size={16} />
-                New Game
+                New Match
               </motion.button>
-              <Link href="/" className="arena-btn arena-btn-ghost">
+              <Link
+                href="/"
+                onClick={leaveRoom}
+                className="arena-btn arena-btn-ghost"
+              >
                 Home
               </Link>
             </div>

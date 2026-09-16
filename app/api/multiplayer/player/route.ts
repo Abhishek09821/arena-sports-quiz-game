@@ -18,16 +18,58 @@ export async function POST(req: Request) {
     // 1. Find room
     const { data: room } = await adminClient
       .from("game_rooms")
-      .select("id")
+      .select("id, status, settings")
       .eq("code", roomCode.toUpperCase())
       .maybeSingle();
 
     if (!room) {
-      return NextResponse.json({ error: "Room not found" }, { status: 404 });
+      return NextResponse.json({ error: "Room not found. Please verify the code." }, { status: 404 });
     }
 
-    // 2. Insert or update player in game_players
-    const { data: player, error } = await adminClient
+    // 2. Query existing players for this room
+    const { data: existingPlayers } = await adminClient
+      .from("game_players")
+      .select("id, player_token, display_name, score, connected")
+      .eq("room_id", room.id)
+      .order("created_at", { ascending: true });
+
+    const players = existingPlayers || [];
+
+    // 3. Deduplication: Check if player is ALREADY in the room (reconnecting / reloading)
+    const existingPlayer = players.find((p) => p.player_token === playerToken);
+    if (existingPlayer) {
+      await adminClient
+        .from("game_players")
+        .update({ connected: true, display_name: playerName })
+        .eq("id", existingPlayer.id);
+
+      return NextResponse.json({
+        success: true,
+        playerId: existingPlayer.id,
+        isHost: players[0]?.player_token === playerToken,
+        role: players[0]?.player_token === playerToken ? "host" : "guest",
+        roomStatus: room.status,
+      });
+    }
+
+    // 4. Strict 1v1 Capacity check: if not already a member and room already has 2 players
+    if (players.length >= 2) {
+      return NextResponse.json(
+        { error: "This 1v1 room is full (maximum 2 players). Please create or join another room." },
+        { status: 403 }
+      );
+    }
+
+    // 5. Check if room is already completed
+    if (room.status === "finished") {
+      return NextResponse.json(
+        { error: "This match has already completed." },
+        { status: 403 }
+      );
+    }
+
+    // 6. Insert new player (Guest / Player 2)
+    const { data: newPlayer, error: insertError } = await adminClient
       .from("game_players")
       .insert({
         room_id: room.id,
@@ -39,13 +81,22 @@ export async function POST(req: Request) {
       .select("id")
       .single();
 
-    if (error) {
-      console.warn("[Multiplayer Player Join warning]:", error);
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message || "Failed to join room" }, { status: 500 });
     }
+
+    // If there are now 2 players, update room status to 'ready'
+    await adminClient
+      .from("game_rooms")
+      .update({ status: "ready", updated_at: new Date().toISOString() })
+      .eq("id", room.id);
 
     return NextResponse.json({
       success: true,
-      playerId: player?.id,
+      playerId: newPlayer.id,
+      isHost: false,
+      role: "guest",
+      roomStatus: "ready",
     });
   } catch (error) {
     return NextResponse.json(
@@ -58,7 +109,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json();
-    const { roomCode, playerToken, score = 0, correctCount = 0, wrongCount = 0, status } = body;
+    const { roomCode, playerToken, score, correctCount = 0, wrongCount = 0, status, currentRound, connected } = body;
 
     if (!roomCode) {
       return NextResponse.json({ error: "Room code is required" }, { status: 400 });
@@ -80,25 +131,30 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    // If status is given (e.g. 'live' or 'finished'), update room
-    if (status) {
-      await adminClient
-        .from("game_rooms")
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq("id", room.id);
+    // If status or currentRound is given, update room
+    const roomUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (status) roomUpdates.status = status;
+    if (typeof currentRound === "number") roomUpdates.current_round = currentRound;
+
+    if (Object.keys(roomUpdates).length > 1) {
+      await adminClient.from("game_rooms").update(roomUpdates).eq("id", room.id);
     }
 
-    // Update player score if playerToken provided
+    // Update player state if playerToken provided
     if (playerToken) {
-      await adminClient
-        .from("game_players")
-        .update({
-          score,
-          correct_count: correctCount,
-          wrong_count: wrongCount,
-        })
-        .eq("room_id", room.id)
-        .eq("player_token", playerToken);
+      const playerUpdates: Record<string, unknown> = {};
+      if (typeof score === "number") playerUpdates.score = score;
+      if (typeof correctCount === "number") playerUpdates.correct_count = correctCount;
+      if (typeof wrongCount === "number") playerUpdates.wrong_count = wrongCount;
+      if (typeof connected === "boolean") playerUpdates.connected = connected;
+
+      if (Object.keys(playerUpdates).length > 0) {
+        await adminClient
+          .from("game_players")
+          .update(playerUpdates)
+          .eq("room_id", room.id)
+          .eq("player_token", playerToken);
+      }
     }
 
     return NextResponse.json({ success: true });

@@ -425,6 +425,74 @@ test("buildGame strictly isolates Football and guarantees 100% FIFA soccer witho
 });
 
 // ═══════════════════════════════════════════════════════════
+// 8. EMAIL VALIDATION & SECURITY TESTS
+// ═══════════════════════════════════════════════════════════
+console.log("\n── Email Validation & Security ─────────────");
+
+import { validateEmail } from "../lib/auth/email_validator";
+
+test("accepts valid permanent email addresses", () => {
+  const validList = [
+    "alex.ferguson@gmail.com",
+    "striker99@outlook.com",
+    "ronaldo@yahoo.co.uk",
+    "sports.fan_2024@arena.org",
+  ];
+  for (const em of validList) {
+    const res = validateEmail(em);
+    assert(res.valid, `Expected "${em}" to be valid, got error: ${res.error}`);
+    assertEqual(res.normalized, em.toLowerCase());
+  }
+});
+
+test("blocks disposable and temporary burner email domains", () => {
+  const burnerList = [
+    "user@mailinator.com",
+    "cheat@tempmail.com",
+    "bot@10minutemail.com",
+    "spammer@guerrillamail.com",
+    "burner@sharklasers.com",
+    "trash@yopmail.com",
+  ];
+  for (const em of burnerList) {
+    const res = validateEmail(em);
+    assert(!res.valid, `Expected burner email "${em}" to be blocked.`);
+    assert(res.error?.includes("Temporary or disposable"), `Expected disposable error message for ${em}`);
+  }
+});
+
+test("blocks fake, test, and dummy placeholder email patterns", () => {
+  const fakeList = [
+    "test@test.com",
+    "fake@fake.com",
+    "dummy@dummy.com",
+    "asdf@asdf.com",
+    "admin@admin.com",
+    "someone@example.com",
+  ];
+  for (const em of fakeList) {
+    const res = validateEmail(em);
+    assert(!res.valid, `Expected fake pattern "${em}" to be rejected.`);
+  }
+});
+
+test("rejects malformed and invalid email syntax", () => {
+  const malformedList = [
+    "",
+    "notanemail",
+    "@domain.com",
+    "user@",
+    "user@domain",
+    "user@.com",
+    "user@domain..com",
+  ];
+  for (const em of malformedList) {
+    const res = validateEmail(em);
+    assert(!res.valid, `Expected malformed email "${em}" to be rejected.`);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // RESULTS
 // ═══════════════════════════════════════════════════════════
 console.log("\n═══════════════════════════════════════════");

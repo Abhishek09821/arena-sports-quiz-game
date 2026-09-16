@@ -50,8 +50,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: roomError?.message || "Failed to create room" }, { status: 500 });
     }
 
-    // 2. Insert host into game_players
+    // 2. Insert host into game_players (clear any stale players for fresh room)
     if (playerToken) {
+      await adminClient.from("game_players").delete().eq("room_id", room.id);
+
       await adminClient.from("game_players").insert({
         room_id: room.id,
         display_name: hostName,
@@ -104,7 +106,7 @@ export async function GET(req: Request) {
     // Fetch registered players
     const { data: players } = await adminClient
       .from("game_players")
-      .select("id, display_name, score, connected, created_at")
+      .select("id, display_name, score, connected, player_token, created_at")
       .eq("room_id", room.id)
       .order("created_at", { ascending: true });
 
