@@ -34,7 +34,7 @@ function test(name: string, fn: () => void) {
   }
 }
 
-function assert(condition: boolean, message: string) {
+function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
 }
 
@@ -457,7 +457,7 @@ test("blocks disposable and temporary burner email domains", () => {
   for (const em of burnerList) {
     const res = validateEmail(em);
     assert(!res.valid, `Expected burner email "${em}" to be blocked.`);
-    assert(res.error?.includes("Temporary or disposable"), `Expected disposable error message for ${em}`);
+    assert(Boolean(res.error?.includes("Temporary or disposable")), `Expected disposable error message for ${em}`);
   }
 });
 
