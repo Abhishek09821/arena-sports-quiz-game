@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.mjs",
+    "dev:next": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.mjs",
+    "socket": "node scripts/socket-server.mjs",
     "lint": "npx eslint app/ components/ lib/ data/ --max-warnings 0",
     "test": "npx tsx tests/core.test.ts"
   },
@@ -17,6 +19,8 @@
     "papaparse": "^5.5.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "zustand": "^5.0.8"
   },
   "devDependencies": {

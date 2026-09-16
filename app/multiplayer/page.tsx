@@ -10,7 +10,6 @@ import {
   Wifi,
   WifiOff,
   Crown,
-  AlertCircle,
   Check,
   X,
   Loader2,
@@ -18,14 +17,21 @@ import {
   Clock,
 } from "lucide-react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { io, Socket } from "socket.io-client";
 import { audio } from "@/lib/audio";
 import { buildGame, getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
-import { SPORT_LIST, DIFFICULTY_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
+import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
 
-type RoomStatus = "idle" | "lobby" | "ready" | "playing" | "finished";
-type PlayerState = { name: string; score: number; ready: boolean; connected: boolean };
+type RoomStatus = "idle" | "lobby" | "playing" | "finished";
+type GamePhase = "buzzer" | "answering" | "revealed";
+
+interface PlayerState {
+  name: string;
+  score: number;
+  ready: boolean;
+  connected: boolean;
+}
 
 function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -53,20 +59,26 @@ export default function MultiplayerPage() {
   const [roomCode, setRoomCode] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [status, setStatus] = useState<RoomStatus>("idle");
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [currentQ, setCurrentQ] = useState(0);
   const [players, setPlayers] = useState<Record<string, PlayerState>>({});
+  const [isHost, setIsHost] = useState(false);
+  const [connected, setConnected] = useState(false);
+
+  // Game state
+  const [currentQ, setCurrentQ] = useState(0);
+  const [totalQ, setTotalQ] = useState(10);
+  const [currentQuestion, setCurrentQuestion] = useState<Partial<Question> | null>(null);
+  const [phase, setPhase] = useState<GamePhase>("buzzer");
   const [buzzWinner, setBuzzWinner] = useState<string | null>(null);
   const [myBuzzed, setMyBuzzed] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [showAnswer, setShowAnswer] = useState(false);
+  const [revealedAnswer, setRevealedAnswer] = useState<number | null>(null);
+  const [isTimedOut, setIsTimedOut] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<number>(15);
   const [myScore, setMyScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [events, setEvents] = useState<string[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [isHost, setIsHost] = useState(false);
 
-  // Customization state for 1v1 Arena
+  // Room customization state
   const [selectedSport, setSelectedSport] = useState<Sport | "All Sports">("All Sports");
   const [selectedTournament, setSelectedTournament] = useState<string>("All Tournaments");
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | "Mixed">("Mixed");
@@ -74,158 +86,297 @@ export default function MultiplayerPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [roomSettings, setRoomSettings] = useState<{ sport: string; difficulty: string; hostName: string; tournament?: string } | null>(null);
+  const [roomSettings, setRoomSettings] = useState<{
+    sport: string;
+    difficulty: string;
+    hostName: string;
+    tournament?: string;
+    count?: number;
+  } | null>(null);
 
-  // Timer & Buzzer state
-  const [questionTime, setQuestionTime] = useState<number>(15);
-  const [answerTime, setAnswerTime] = useState<number>(8);
-  const [timedOut, setTimedOut] = useState<boolean>(false);
-
-  // Synchronized refs for Realtime and timers
+  // Synchronized refs
+  const socketRef = useRef<Socket | null>(null);
   const myIdRef = useRef<string>("usr_init");
-  const nameRef = useRef<string>(name);
-  nameRef.current = name;
-  const isHostRef = useRef<boolean>(isHost);
-  isHostRef.current = isHost;
-  const questionsRef = useRef<Question[]>(questions);
-  questionsRef.current = questions;
-  const currentQRef = useRef<number>(currentQ);
-  currentQRef.current = currentQ;
   const buzzWinnerRef = useRef<string | null>(buzzWinner);
   buzzWinnerRef.current = buzzWinner;
-  const showAnswerRef = useRef<boolean>(showAnswer);
-  showAnswerRef.current = showAnswer;
-  const timedOutRef = useRef<boolean>(timedOut);
-  timedOutRef.current = timedOut;
-  const questionTimeRef = useRef<number>(questionTime);
-  questionTimeRef.current = questionTime;
-  const answerTimeRef = useRef<number>(answerTime);
-  answerTimeRef.current = answerTime;
-  const nextQTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const channelRef = useRef<ReturnType<typeof supabase extends null ? never : NonNullable<typeof supabase>["channel"]> | null>(null);
+  const phaseRef = useRef<GamePhase>(phase);
+  phaseRef.current = phase;
 
   const addEvent = useCallback((msg: string) => {
     setEvents((prev) => [msg, ...prev].slice(0, 8));
   }, []);
 
-  // Sync state directly from Supabase database
-  const syncRoomState = useCallback(async (code: string, token: string) => {
-    if (!code) return;
-    try {
-      const res = await fetch(`/api/multiplayer/room?code=${code}`);
-      if (res.status === 404) {
-        // Room was closed or deleted by host!
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("arena_mp_session");
-        }
-        channelRef.current?.unsubscribe();
-        channelRef.current = null;
-        setStatus("idle");
-        setRoomCode("");
-        setCodeInput("");
-        setPlayers({});
-        setJoinError("The room was closed by the host.");
-        return;
-      }
-
-      const data = await res.json();
-      if (!res.ok || !data.success || !data.room) {
-        return;
-      }
-
-      // Sync questions
-      if (data.questions && data.questions.length > 0) {
-        setQuestions(data.questions);
-      }
-
-      // Sync room settings
-      if (data.room.settings) {
-        setRoomSettings({
-          sport: data.sport || "All Sports",
-          difficulty: data.difficulty || "Mixed",
-          hostName: data.hostName || "Host",
-        });
-      }
-
-      // Sync players list
-      if (Array.isArray(data.players)) {
-        const playerMap: Record<string, PlayerState> = {};
-        for (const p of data.players) {
-          playerMap[p.player_token] = {
-            name: p.display_name,
-            score: p.score || 0,
-            ready: true,
-            connected: p.connected,
-          };
-        }
-        setPlayers(playerMap);
-
-        // Update scores
-        const me = data.players.find((p: { player_token: string }) => p.player_token === token);
-        const opp = data.players.find((p: { player_token: string }) => p.player_token !== token);
-        if (me) setMyScore(me.score || 0);
-        if (opp) setOpponentScore(opp.score || 0);
-
-        // Determine host role
-        if (data.hostToken) {
-          setIsHost(data.hostToken === token);
-        } else if (data.players[0]?.player_token === token) {
-          setIsHost(true);
-        }
-      }
-
-      // Sync room status
-      const remoteStatus = data.room.status;
-      if (remoteStatus === "playing" || remoteStatus === "live") {
-        setStatus("playing");
-      } else if (remoteStatus === "finished") {
-        setStatus("finished");
-      } else if (remoteStatus === "ready" || remoteStatus === "waiting") {
-        // Do NOT eject back to lobby if we are currently playing
-        setStatus((prev) => (prev === "playing" ? "playing" : "lobby"));
-      }
-    } catch (err) {
-      console.warn("[Multiplayer Sync] Error fetching room state:", err);
+  const updateScoresFromMap = useCallback((scoresMap: Record<string, number>) => {
+    const meId = myIdRef.current;
+    if (typeof scoresMap[meId] === "number") {
+      setMyScore(scoresMap[meId]);
+    }
+    const oppEntry = Object.entries(scoresMap).find(([id]) => id !== meId);
+    if (oppEntry) {
+      setOpponentScore(oppEntry[1]);
     }
   }, []);
 
-  // Auto-restore multiplayer session across browser reloads
+  // ── Initialize Socket.IO connection ──────────────────────
+  const initSocket = useCallback(() => {
+    if (socketRef.current?.connected) {
+      return socketRef.current;
+    }
+
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+
+    const s = io(socketUrl, {
+      path: "/api/socketio",
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+
+    socketRef.current = s;
+
+    s.on("connect", () => {
+      setConnected(true);
+      setJoinError(null);
+    });
+
+    s.on("disconnect", () => {
+      setConnected(false);
+    });
+
+    s.on("connect_error", (err) => {
+      console.warn("[Socket.IO] Connection notice:", err.message);
+      setConnected(false);
+    });
+
+    // ── Authoritative Server Events ──────────────────────────
+    s.on("room_created", (data) => {
+      setStatus("lobby");
+      setRoomCode(data.roomCode);
+      setIsHost(true);
+      if (data.players) setPlayers(data.players);
+      if (data.settings) {
+        setRoomSettings(data.settings);
+      }
+      addEvent(`Room created (${data.settings?.difficulty || "Mixed"} • ${data.settings?.sport || "All Sports"}). Code: ${data.roomCode}`);
+    });
+
+    s.on("room_joined", (data) => {
+      setRoomCode(data.roomCode);
+      setIsHost(Boolean(data.isHost));
+      if (data.players) setPlayers(data.players);
+      if (data.settings) setRoomSettings(data.settings);
+
+      if (data.status === "playing" && data.currentQuestion) {
+        setStatus("playing");
+        setCurrentQuestion(data.currentQuestion);
+        setCurrentQ(data.currentQ || 0);
+        setTotalQ(data.totalQ || 10);
+        setPhase(data.phase || "buzzer");
+        setBuzzWinner(data.buzzWinner || null);
+        setTimeRemaining(data.timeRemaining || 15);
+      } else {
+        setStatus("lobby");
+      }
+
+      if (data.scores) updateScoresFromMap(data.scores);
+      addEvent(`Connected to room ${data.roomCode}`);
+    });
+
+    s.on("room_state", (data) => {
+      if (data.players) setPlayers(data.players);
+      if (data.scores) updateScoresFromMap(data.scores);
+      if (data.message) addEvent(data.message);
+    });
+
+    s.on("game_started", (data) => {
+      setStatus("playing");
+      setPhase("buzzer");
+      setBuzzWinner(null);
+      setMyBuzzed(false);
+      setSelectedAnswer(null);
+      setRevealedAnswer(null);
+      setIsTimedOut(false);
+      if (data.totalQuestions) setTotalQ(data.totalQuestions);
+      if (data.players) setPlayers(data.players);
+      addEvent("Match started! Rapid buzzer active.");
+      audio.click();
+    });
+
+    s.on("question_start", (data) => {
+      setStatus("playing");
+      setCurrentQ(data.currentQ);
+      setTotalQ(data.totalQ);
+      setCurrentQuestion(data.question);
+      setPhase("buzzer");
+      setBuzzWinner(null);
+      setMyBuzzed(false);
+      setSelectedAnswer(null);
+      setRevealedAnswer(null);
+      setIsTimedOut(false);
+      setTimeRemaining(data.timeRemaining ?? 15);
+      if (data.scores) updateScoresFromMap(data.scores);
+    });
+
+    s.on("timer_tick", (data) => {
+      setTimeRemaining(data.timeRemaining);
+      setPhase(data.phase);
+      if (data.buzzWinner) setBuzzWinner(data.buzzWinner);
+
+      if (data.phase === "buzzer") {
+        if (data.timeRemaining <= 5 && data.timeRemaining > 2) {
+          audio.tick();
+        } else if (data.timeRemaining === 2) {
+          audio.urgentTick();
+        }
+      } else if (data.phase === "answering") {
+        if (buzzWinnerRef.current === myIdRef.current) {
+          if (data.timeRemaining <= 3 && data.timeRemaining > 0) {
+            audio.urgentTick();
+          } else if (data.timeRemaining > 0) {
+            audio.tick();
+          }
+        }
+      }
+    });
+
+    s.on("buzz_winner", (data) => {
+      setBuzzWinner(data.winnerId);
+      setPhase("answering");
+      setTimeRemaining(data.answerTime ?? 8);
+      audio.buzzer();
+      if (data.winnerId === myIdRef.current) {
+        addEvent("You buzzed first! ✨ Select your answer");
+      } else {
+        addEvent(`${data.winnerName} buzzed first!`);
+      }
+    });
+
+    s.on("round_result", (data) => {
+      setPhase("revealed");
+      setRevealedAnswer(data.correctAnswer);
+      setSelectedAnswer(data.answer);
+      if (data.scores) updateScoresFromMap(data.scores);
+
+      if (data.timedOut) {
+        setIsTimedOut(true);
+        audio.timeout();
+        addEvent(`${data.winnerName} ran out of time! ⌛`);
+      } else if (data.correct) {
+        audio.correct();
+        addEvent(
+          data.winnerId === myIdRef.current
+            ? "You answered correctly! +100"
+            : `${data.winnerName} answered correctly! +100`
+        );
+      } else {
+        audio.wrong();
+        addEvent(
+          data.winnerId === myIdRef.current
+            ? "You got it wrong."
+            : `${data.winnerName} got it wrong.`
+        );
+      }
+    });
+
+    s.on("round_timeout", (data) => {
+      setPhase("revealed");
+      setIsTimedOut(true);
+      setRevealedAnswer(data.correctAnswer);
+      if (data.scores) updateScoresFromMap(data.scores);
+      audio.timeout();
+      addEvent("Time expired — no one buzzed!");
+    });
+
+    s.on("game_finished", (data) => {
+      setStatus("finished");
+      if (data.scores) updateScoresFromMap(data.scores);
+      audio.roundComplete();
+      addEvent("Match finished!");
+
+      // Update Supabase record in background
+      if (roomCode) {
+        fetch("/api/multiplayer/player", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomCode,
+            playerToken: myIdRef.current,
+            score: myScore,
+            status: "finished",
+          }),
+        }).catch(() => {});
+      }
+    });
+
+    s.on("player_left", (data) => {
+      addEvent(data.message || "Opponent left the match.");
+    });
+
+    s.on("player_disconnected", (data) => {
+      addEvent(`${data.name} disconnected.`);
+    });
+
+    s.on("room_closed", (data) => {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("arena_mp_session");
+      }
+      setStatus("idle");
+      setRoomCode("");
+      setCodeInput("");
+      setPlayers({});
+      setJoinError(data.message || "The room was closed by the host.");
+      audio.wrong();
+    });
+
+    return s;
+  }, [addEvent, updateScoresFromMap, roomCode, myScore]);
+
+  // ── Auto-restore session & initialize on mount ───────────
   useEffect(() => {
     myIdRef.current = getPlayerToken();
+    const s = initSocket();
+
     const saved = typeof window !== "undefined" ? sessionStorage.getItem("arena_mp_session") : null;
-    if (!saved) return;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as StoredMPSession;
+        if (parsed.roomCode && parsed.playerToken) {
+          myIdRef.current = parsed.playerToken;
+          if (parsed.playerName) setName(parsed.playerName);
+          setRoomCode(parsed.roomCode);
+          setCodeInput(parsed.roomCode);
+          setIsHost(parsed.role === "host");
 
-    try {
-      const parsed = JSON.parse(saved) as StoredMPSession;
-      if (parsed.roomCode && parsed.playerToken) {
-        myIdRef.current = parsed.playerToken;
-        if (parsed.playerName) setName(parsed.playerName);
-        setRoomCode(parsed.roomCode);
-        setCodeInput(parsed.roomCode);
-        setIsHost(parsed.role === "host");
-        setStatus("lobby");
-        addEvent(`Session restored. Reconnected to room ${parsed.roomCode}.`);
-        void syncRoomState(parsed.roomCode, parsed.playerToken);
+          // Rejoin socket room
+          s.emit(
+            "join_room",
+            {
+              roomCode: parsed.roomCode,
+              playerName: parsed.playerName || "Player",
+              playerToken: parsed.playerToken,
+            },
+            (res: { error?: string }) => {
+              if (res?.error) {
+                sessionStorage.removeItem("arena_mp_session");
+                setStatus("idle");
+                setRoomCode("");
+              }
+            }
+          );
+        }
+      } catch {
+        sessionStorage.removeItem("arena_mp_session");
       }
-    } catch {
-      sessionStorage.removeItem("arena_mp_session");
     }
-  }, [syncRoomState, addEvent]);
+  }, [initSocket]);
 
-  // Periodic heartbeat polling to ensure both players are 100% synchronized
-  useEffect(() => {
-    if (!roomCode || status === "idle" || status === "finished") return;
-
-    const interval = setInterval(() => {
-      void syncRoomState(roomCode, myIdRef.current);
-    }, 1200);
-
-    return () => clearInterval(interval);
-  }, [roomCode, status, syncRoomState]);
-
-  // Create room with Grok AI questions, difficulty, sport, and tournament
+  // ── Create Room ──────────────────────────────────────────
   const createRoom = useCallback(async () => {
     setIsCreating(true);
+    setJoinError(null);
     audio.click();
     const code = generateRoomCode();
     setRoomCode(code);
@@ -242,7 +393,12 @@ export default function MultiplayerPage() {
           sport: selectedSport,
           difficulty: selectedDifficulty,
           count: selectedCount,
-          category: selectedTournament !== "All Tournaments" && selectedTournament !== "All Events" && selectedTournament !== "All Grand Prix" ? selectedTournament : undefined,
+          category:
+            selectedTournament !== "All Tournaments" &&
+            selectedTournament !== "All Events" &&
+            selectedTournament !== "All Grand Prix"
+              ? selectedTournament
+              : undefined,
           mode: "multiplayer",
           excludeStems: seenIds,
         }),
@@ -258,7 +414,6 @@ export default function MultiplayerPage() {
       qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
     }
 
-    setQuestions(qs);
     setRoomSettings({
       sport: selectedSport,
       difficulty: selectedDifficulty,
@@ -266,44 +421,62 @@ export default function MultiplayerPage() {
       hostName: name || "Host",
     });
 
-    try {
-      await fetch("/api/multiplayer/room", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code,
-          hostName: name || "Host",
-          sport: selectedSport,
-          difficulty: selectedDifficulty,
-          tournament: selectedTournament,
-          count: selectedCount,
-          questions: qs,
-          playerToken: myIdRef.current,
-        }),
-      });
+    const s = initSocket();
 
-      // Save active session for reload recovery
-      sessionStorage.setItem(
-        "arena_mp_session",
-        JSON.stringify({
-          roomCode: code,
-          playerToken: myIdRef.current,
-          playerName: name || "Host",
-          role: "host",
-        })
-      );
-    } catch (err) {
-      console.warn("[Multiplayer] Supabase room persist notice:", err);
-    } finally {
-      setIsCreating(false);
-      setStatus("lobby");
-      addEvent(`Room created (${selectedDifficulty} • ${selectedSport}${selectedTournament !== "All Tournaments" ? ` • ${selectedTournament}` : ""}). Share code: ${code}`);
-      trackEvent("room_created", { code, sport: selectedSport, difficulty: selectedDifficulty });
-      audio.select();
-    }
-  }, [name, selectedSport, selectedDifficulty, selectedTournament, selectedCount, addEvent]);
+    // 1. Authoritative create on Socket.IO server
+    s.emit(
+      "create_room",
+      {
+        roomCode: code,
+        hostName: name || "Host",
+        playerToken: myIdRef.current,
+        sport: selectedSport,
+        difficulty: selectedDifficulty,
+        tournament: selectedTournament,
+        count: selectedCount,
+        questions: qs,
+      },
+      (res: { error?: string }) => {
+        setIsCreating(false);
+        if (res?.error) {
+          setJoinError(res.error);
+          audio.wrong();
+        } else {
+          sessionStorage.setItem(
+            "arena_mp_session",
+            JSON.stringify({
+              roomCode: code,
+              playerToken: myIdRef.current,
+              playerName: name || "Host",
+              role: "host",
+            })
+          );
+          setStatus("lobby");
+          audio.select();
+        }
+      }
+    );
 
-  // Join room with strict capacity enforcement
+    // 2. Non-blocking Supabase sync for persistence/records
+    fetch("/api/multiplayer/room", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        hostName: name || "Host",
+        sport: selectedSport,
+        difficulty: selectedDifficulty,
+        tournament: selectedTournament,
+        count: selectedCount,
+        questions: qs,
+        playerToken: myIdRef.current,
+      }),
+    }).catch(() => {});
+
+    trackEvent("room_created", { code, sport: selectedSport, difficulty: selectedDifficulty });
+  }, [name, selectedSport, selectedDifficulty, selectedTournament, selectedCount, initSocket]);
+
+  // ── Join Room ────────────────────────────────────────────
   const joinRoom = useCallback(async () => {
     const code = codeInput.trim().toUpperCase();
     if (!code) return;
@@ -311,101 +484,102 @@ export default function MultiplayerPage() {
     setJoinError(null);
     audio.select();
 
-    try {
-      // 1. Register this player in Supabase (enforces max 2 players and deduplication)
-      const joinRes = await fetch("/api/multiplayer/player", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomCode: code,
-          playerName: name || "Player 2",
-          playerToken: myIdRef.current,
-        }),
-      });
+    const s = initSocket();
 
-      const joinData = await joinRes.json();
-      if (!joinRes.ok) {
-        setJoinError(joinData.error || "Cannot join room. Verify the code.");
-        audio.wrong();
+    s.emit(
+      "join_room",
+      {
+        roomCode: code,
+        playerName: name || "Player 2",
+        playerToken: myIdRef.current,
+      },
+      (res: { error?: string; roomCode?: string; isHost?: boolean }) => {
         setIsJoining(false);
-        return;
+        if (res?.error) {
+          setJoinError(res.error);
+          audio.wrong();
+        } else {
+          setRoomCode(code);
+          setIsHost(Boolean(res?.isHost));
+          sessionStorage.setItem(
+            "arena_mp_session",
+            JSON.stringify({
+              roomCode: code,
+              playerToken: myIdRef.current,
+              playerName: name || "Player 2",
+              role: res?.isHost ? "host" : "guest",
+            })
+          );
+          setStatus("lobby");
+          audio.correct();
+          trackEvent("room_joined", { code });
+        }
       }
+    );
 
-      // 2. Fetch room details and questions
-      const res = await fetch(`/api/multiplayer/room?code=${code}`);
-      const data = await res.json();
+    // Non-blocking Supabase join record
+    fetch("/api/multiplayer/player", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roomCode: code,
+        playerName: name || "Player 2",
+        playerToken: myIdRef.current,
+      }),
+    }).catch(() => {});
+  }, [codeInput, name, initSocket]);
 
-      if (res.ok && data.success && data.questions?.length) {
-        setQuestions(data.questions);
-        setRoomCode(code);
-        setIsHost(Boolean(joinData.isHost));
-        setRoomSettings({
-          hostName: data.hostName || "Host",
-          sport: data.sport || "All Sports",
-          difficulty: data.difficulty || "Mixed",
-        });
+  // ── Start Match (Host only) ──────────────────────────────
+  const startGame = useCallback(() => {
+    audio.click();
+    socketRef.current?.emit("start_game", {
+      roomCode,
+      playerToken: myIdRef.current,
+    });
+  }, [roomCode]);
 
-        // Save session for reload resilience
-        sessionStorage.setItem(
-          "arena_mp_session",
-          JSON.stringify({
-            roomCode: code,
-            playerToken: myIdRef.current,
-            playerName: name || "Player 2",
-            role: joinData.isHost ? "host" : "guest",
-          })
-        );
+  // ── Buzz (Atomic on Server) ──────────────────────────────
+  const buzz = useCallback(() => {
+    if (phase !== "buzzer" || buzzWinner || myBuzzed || timeRemaining <= 0) return;
+    setMyBuzzed(true);
+    socketRef.current?.emit("buzz", {
+      roomCode,
+      playerToken: myIdRef.current,
+    });
+  }, [phase, buzzWinner, myBuzzed, timeRemaining, roomCode]);
 
-        setStatus("lobby");
-        addEvent(`Joined room ${code}. Ready for match.`);
-        trackEvent("room_joined", { code });
-        audio.correct();
-      } else {
-        setJoinError(data.error || "Failed to load room questions.");
-        audio.wrong();
-      }
-    } catch (err) {
-      setJoinError(err instanceof Error ? err.message : "Failed to join room.");
-      audio.wrong();
-    } finally {
-      setIsJoining(false);
-    }
-  }, [codeInput, name, addEvent]);
+  // ── Submit Answer ────────────────────────────────────────
+  const submitAnswer = useCallback(
+    (answerIndex: number) => {
+      if (phase !== "answering" || buzzWinner !== myIdRef.current) return;
+      setSelectedAnswer(answerIndex);
+      socketRef.current?.emit("submit_answer", {
+        roomCode,
+        playerToken: myIdRef.current,
+        answer: answerIndex,
+      });
+    },
+    [phase, buzzWinner, roomCode]
+  );
 
-  // Leave room and clean session
-  const leaveRoom = useCallback(async () => {
+  // ── Leave Room ───────────────────────────────────────────
+  const leaveRoom = useCallback(() => {
     audio.click();
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("arena_mp_session");
     }
-    const codeToLeave = roomCode;
-    const amHost = isHostRef.current;
-    if (codeToLeave) {
-      if (amHost) {
-        channelRef.current?.send({
-          type: "broadcast",
-          event: "room_closed",
-          payload: { roomCode: codeToLeave },
-        });
-      } else {
-        channelRef.current?.send({
-          type: "broadcast",
-          event: "player_left",
-          payload: { id: myIdRef.current, name: nameRef.current },
-        });
-      }
+    if (roomCode) {
+      socketRef.current?.emit("leave_room", {
+        roomCode,
+        playerToken: myIdRef.current,
+      });
 
-      try {
-        await fetch(`/api/multiplayer/player?code=${codeToLeave}&token=${myIdRef.current}`, {
-          method: "DELETE",
-        });
-      } catch (err) {
-        console.warn("[Multiplayer] Error calling leave DELETE:", err);
-      }
+      // Best effort cleanup in DB
+      fetch(`/api/multiplayer/player?code=${roomCode}&token=${myIdRef.current}`, {
+        method: "DELETE",
+      }).catch(() => {});
     }
 
-    channelRef.current?.unsubscribe();
-    channelRef.current = null;
     setStatus("idle");
     setRoomCode("");
     setCodeInput("");
@@ -418,378 +592,14 @@ export default function MultiplayerPage() {
     setBuzzWinner(null);
     setMyBuzzed(false);
     setSelectedAnswer(null);
-    setShowAnswer(false);
-    setTimedOut(false);
+    setRevealedAnswer(null);
+    setIsTimedOut(false);
+    setCurrentQuestion(null);
   }, [roomCode]);
 
-  // Connect to Supabase Realtime channel for instant buzzers and answer feedback
+  // ── Keyboard Spacebar to Buzz ────────────────────────────
   useEffect(() => {
-    if (!supabase || !roomCode || status === "idle") return;
-
-    const channel = supabase.channel(`arena:${roomCode}`, {
-      config: { broadcast: { self: true } },
-    });
-
-    channelRef.current = channel;
-
-    channel
-      .on("broadcast", { event: "player_join" }, ({ payload }) => {
-        if (payload.id !== myIdRef.current) {
-          setPlayers((prev) => ({
-            ...prev,
-            [payload.id]: { name: payload.name, score: 0, ready: true, connected: true },
-          }));
-          addEvent(`${payload.name} joined`);
-          audio.opponentJoined();
-        }
-      })
-      .on("broadcast", { event: "room_closed" }, () => {
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("arena_mp_session");
-        }
-        channelRef.current?.unsubscribe();
-        channelRef.current = null;
-        setStatus("idle");
-        setRoomCode("");
-        setCodeInput("");
-        setPlayers({});
-        setJoinError("The room was closed by the host.");
-        audio.wrong();
-      })
-      .on("broadcast", { event: "player_left" }, ({ payload }) => {
-        setPlayers((prev) => {
-          const updated = { ...prev };
-          delete updated[payload.id];
-          return updated;
-        });
-        addEvent(`${payload.name} left the room`);
-      })
-      .on("broadcast", { event: "game_start" }, ({ payload }) => {
-        if (payload.questions && payload.questions.length > 0) {
-          setQuestions(payload.questions);
-        }
-        setStatus("playing");
-        setCurrentQ(0);
-        setBuzzWinner(null);
-        setMyBuzzed(false);
-        setSelectedAnswer(null);
-        setShowAnswer(false);
-        setTimedOut(false);
-        setQuestionTime(15);
-        setAnswerTime(8);
-        addEvent("Match started! Rapid buzzer active.");
-        audio.click();
-      })
-      .on("broadcast", { event: "timer_tick" }, ({ payload }) => {
-        // Authoritative tick sent by Host received by Guest
-        if (!isHostRef.current) {
-          setQuestionTime(payload.questionTime);
-          setAnswerTime(payload.answerTime);
-          if (typeof payload.currentQ === "number" && payload.currentQ !== currentQRef.current) {
-            setCurrentQ(payload.currentQ);
-          }
-          if (payload.phase === "question") {
-            if (payload.questionTime <= 6 && payload.questionTime > 2) {
-              audio.tick();
-            } else if (payload.questionTime === 2) {
-              audio.urgentTick();
-            }
-          } else if (payload.phase === "answer") {
-            if (buzzWinnerRef.current === myIdRef.current) {
-              if (payload.answerTime <= 3 && payload.answerTime > 0) {
-                audio.urgentTick();
-              } else if (payload.answerTime > 0) {
-                audio.tick();
-              }
-            }
-          }
-        }
-      })
-      .on("broadcast", { event: "buzz" }, ({ payload }) => {
-        setBuzzWinner((currentWinner) => {
-          if (!currentWinner) {
-            if (payload.id === myIdRef.current) {
-              addEvent("You buzzed first! ✨");
-            } else {
-              addEvent(`${payload.name} buzzed first!`);
-            }
-            audio.buzzer();
-            setAnswerTime(8);
-            return payload.id;
-          }
-          return currentWinner;
-        });
-      })
-      .on("broadcast", { event: "answer" }, ({ payload }) => {
-        setShowAnswer(true);
-        setSelectedAnswer(payload.answer);
-        if (payload.correct) {
-          if (payload.id === myIdRef.current) {
-            setMyScore((s) => s + 100);
-          } else {
-            setOpponentScore((s) => s + 100);
-          }
-          audio.correct();
-        } else {
-          audio.wrong();
-        }
-
-        addEvent(
-          payload.answer === -1
-            ? `${payload.name} ran out of time! ⌛`
-            : payload.correct
-            ? `${payload.name} answered correctly! +100`
-            : `${payload.name} got it wrong.`
-        );
-
-        // ONLY the Host orchestrates next question delay
-        if (isHostRef.current) {
-          if (nextQTimeoutRef.current) clearTimeout(nextQTimeoutRef.current);
-          nextQTimeoutRef.current = setTimeout(() => {
-            const nextQ = currentQRef.current + 1;
-            const total = questionsRef.current.length || 10;
-            if (nextQ >= total) {
-              channelRef.current?.send({
-                type: "broadcast",
-                event: "match_finished",
-              });
-              setStatus("finished");
-              audio.roundComplete();
-            } else {
-              channelRef.current?.send({
-                type: "broadcast",
-                event: "next_question",
-                payload: { nextQ },
-              });
-            }
-          }, 2400);
-        }
-      })
-      .on("broadcast", { event: "question_timeout" }, () => {
-        setTimedOut(true);
-        setShowAnswer(true);
-        audio.timeout();
-        addEvent("Time expired — no one buzzed!");
-
-        // ONLY the Host orchestrates next question delay
-        if (isHostRef.current) {
-          if (nextQTimeoutRef.current) clearTimeout(nextQTimeoutRef.current);
-          nextQTimeoutRef.current = setTimeout(() => {
-            const nextQ = currentQRef.current + 1;
-            const total = questionsRef.current.length || 10;
-            if (nextQ >= total) {
-              channelRef.current?.send({
-                type: "broadcast",
-                event: "match_finished",
-              });
-              setStatus("finished");
-              audio.roundComplete();
-            } else {
-              channelRef.current?.send({
-                type: "broadcast",
-                event: "next_question",
-                payload: { nextQ },
-              });
-            }
-          }, 2400);
-        }
-      })
-      .on("broadcast", { event: "next_question" }, ({ payload }) => {
-        setCurrentQ(payload.nextQ);
-        setBuzzWinner(null);
-        setMyBuzzed(false);
-        setSelectedAnswer(null);
-        setShowAnswer(false);
-        setTimedOut(false);
-        setQuestionTime(15);
-        setAnswerTime(8);
-      })
-      .on("broadcast", { event: "match_finished" }, () => {
-        setStatus("finished");
-        audio.roundComplete();
-        fetch("/api/multiplayer/player", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            roomCode,
-            playerToken: myIdRef.current,
-            score: myScore,
-            status: "finished",
-          }),
-        }).catch(() => {});
-      })
-      .on("broadcast", { event: "disconnect" }, ({ payload }) => {
-        setPlayers((prev) => ({
-          ...prev,
-          [payload.id]: { ...prev[payload.id], connected: false },
-        }));
-        addEvent(`${payload.name} disconnected`);
-      })
-      .subscribe((subStatus) => {
-        if (subStatus === "SUBSCRIBED") {
-          setConnected(true);
-          // Announce ourselves
-          channel.send({
-            type: "broadcast",
-            event: "player_join",
-            payload: { id: myIdRef.current, name: nameRef.current },
-          });
-          setPlayers((prev) => ({
-            ...prev,
-            [myIdRef.current]: { name: nameRef.current, score: 0, ready: true, connected: true },
-          }));
-        }
-      });
-
-    return () => {
-      channel.send({
-        type: "broadcast",
-        event: "disconnect",
-        payload: { id: myIdRef.current, name: nameRef.current },
-      });
-      void channel.unsubscribe();
-      channelRef.current = null;
-      setConnected(false);
-    };
-  }, [roomCode, addEvent]);
-
-  const startGame = async () => {
-    audio.click();
-    // 1. Broadcast immediate start
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "game_start",
-      payload: { questions },
-    });
-    // 2. Persist room status in Supabase using valid constraint 'live'
-    try {
-      await fetch("/api/multiplayer/player", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomCode, status: "live", currentRound: 0 }),
-      });
-    } catch {}
-    setStatus("playing");
-    setCurrentQ(0);
-    setBuzzWinner(null);
-    setMyBuzzed(false);
-    setSelectedAnswer(null);
-    setShowAnswer(false);
-    setTimedOut(false);
-    setQuestionTime(15);
-    setAnswerTime(8);
-  };
-
-  const buzz = useCallback(() => {
-    if (buzzWinner || myBuzzed || showAnswer || timedOut) return;
-    setMyBuzzed(true);
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "buzz",
-      payload: { id: myIdRef.current, name: nameRef.current, timestamp: Date.now() },
-    });
-  }, [buzzWinner, myBuzzed, showAnswer, timedOut]);
-
-  const submitAnswer = useCallback((answer: number) => {
-    const currentQuestion = questions[currentQ];
-    if (!currentQuestion) return;
-    const correct = answer === currentQuestion.answer;
-    channelRef.current?.send({
-      type: "broadcast",
-      event: "answer",
-      payload: { id: myIdRef.current, name: nameRef.current, answer, correct },
-    });
-  }, [questions, currentQ]);
-
-  // Authoritative Match Timer (Runs strictly on HOST to eliminate clock drift & double transitions)
-  useEffect(() => {
-    if (!isHost || status !== "playing") return;
-
-    const timer = setInterval(() => {
-      // Don't tick while showing answer / transition results
-      if (showAnswerRef.current || timedOutRef.current) return;
-
-      if (!buzzWinnerRef.current) {
-        // Question buzzer countdown (15s)
-        const current = questionTimeRef.current;
-        const nextTime = Math.max(0, current - 1);
-        setQuestionTime(nextTime);
-
-        // Broadcast authoritative tick to guest
-        channelRef.current?.send({
-          type: "broadcast",
-          event: "timer_tick",
-          payload: {
-            questionTime: nextTime,
-            answerTime: 8,
-            currentQ: currentQRef.current,
-            phase: "question",
-          },
-        });
-
-        if (nextTime <= 0) {
-          channelRef.current?.send({
-            type: "broadcast",
-            event: "question_timeout",
-          });
-          return;
-        }
-
-        if (nextTime <= 6 && nextTime > 2) {
-          audio.tick();
-        } else if (nextTime === 2) {
-          audio.urgentTick();
-        }
-      } else {
-        // Answer selection countdown (8s)
-        const current = answerTimeRef.current;
-        const nextTime = Math.max(0, current - 1);
-        setAnswerTime(nextTime);
-
-        // Broadcast authoritative tick to guest
-        channelRef.current?.send({
-          type: "broadcast",
-          event: "timer_tick",
-          payload: {
-            questionTime: questionTimeRef.current,
-            answerTime: nextTime,
-            currentQ: currentQRef.current,
-            phase: "answer",
-          },
-        });
-
-        if (nextTime <= 0) {
-          // Buzz winner ran out of time
-          const winnerId = buzzWinnerRef.current;
-          channelRef.current?.send({
-            type: "broadcast",
-            event: "answer",
-            payload: {
-              id: winnerId,
-              name: players[winnerId || ""]?.name || "Player",
-              answer: -1,
-              correct: false,
-            },
-          });
-          return;
-        }
-
-        if (buzzWinnerRef.current === myIdRef.current) {
-          if (nextTime <= 3 && nextTime > 0) {
-            audio.urgentTick();
-          } else if (nextTime > 0) {
-            audio.tick();
-          }
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isHost, status, players]);
-
-  // Keyboard Spacebar shortcut to Buzz
-  useEffect(() => {
-    if (status !== "playing" || buzzWinner || myBuzzed || showAnswer || timedOut) return;
+    if (status !== "playing" || phase !== "buzzer" || buzzWinner || myBuzzed) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space") {
@@ -800,7 +610,7 @@ export default function MultiplayerPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [status, buzzWinner, myBuzzed, showAnswer, timedOut, buzz]);
+  }, [status, phase, buzzWinner, myBuzzed, buzz]);
 
   const copyCode = () => {
     navigator.clipboard?.writeText(roomCode);
@@ -809,10 +619,10 @@ export default function MultiplayerPage() {
   };
 
   const playerCount = Object.keys(players).length;
-  const q = questions[currentQ];
   const iAmBuzzWinner = buzzWinner === myIdRef.current;
+  const q = currentQuestion;
 
-  // ── Idle: Create/Join ───────────────────────────────────
+  // ── Idle View: Create or Join ────────────────────────────
   if (status === "idle") {
     return (
       <main className="arena-container pb-16">
@@ -829,25 +639,19 @@ export default function MultiplayerPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, ease: [0.2, 0.9, 0.3, 1] }}
           >
-            <div className="arena-eyebrow mt-8">1v1 Buzzer</div>
+            <div className="arena-eyebrow mt-8">1v1 Realtime Arena</div>
             <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2 font-bold">
               Beat the person<br />
               <span className="text-arena-bad">in the room.</span>
             </h1>
             <p className="text-arena-muted max-w-[700px] mt-3 leading-relaxed">
-              Create a room, share the code, and race to buzz first.
-              The fastest hand gets to answer.{" "}
-              {!supabase && (
-                <span className="text-arena-warn">
-                  Add Supabase keys to enable realtime multiplayer.
-                </span>
-              )}
+              Create a room, share the 6-digit code, and battle head-to-head on the synchronized buzzer. Powered by authoritative Socket.IO for zero latency drift.
             </p>
           </motion.div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-4xl">
-          {/* Create */}
+          {/* Create Room Card */}
           <motion.div
             className="lg:col-span-7 arena-card arena-card-shine space-y-4"
             initial={{ opacity: 0, y: 16 }}
@@ -861,8 +665,9 @@ export default function MultiplayerPage() {
                   Configure Your Arena
                 </h3>
               </div>
-              <span className="arena-pill px-2.5 py-1 text-[11px] text-arena-accent font-semibold">
-                Saved to Supabase
+              <span className="arena-pill px-2.5 py-1 text-[11px] text-arena-accent font-semibold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-arena-accent animate-pulse" />
+                Socket.IO Synced
               </span>
             </div>
 
@@ -879,7 +684,7 @@ export default function MultiplayerPage() {
               />
             </label>
 
-            {/* Sport Selection */}
+            {/* Sport Selection (Strictly 6 sports + All Sports) */}
             <div>
               <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
                 Sport
@@ -902,7 +707,7 @@ export default function MultiplayerPage() {
               </select>
             </div>
 
-            {/* Tournament / League Selection */}
+            {/* Tournament Selection */}
             {selectedSport !== "All Sports" && TOURNAMENTS_BY_SPORT[selectedSport] && (
               <div>
                 <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
@@ -943,7 +748,10 @@ export default function MultiplayerPage() {
                   <button
                     key={d}
                     type="button"
-                    onClick={() => { setSelectedDifficulty(d); audio.click(); }}
+                    onClick={() => {
+                      setSelectedDifficulty(d);
+                      audio.click();
+                    }}
                     className={`py-2 px-1 text-xs rounded-xl font-bold transition-all border text-center ${
                       selectedDifficulty === d
                         ? "bg-arena-accent/20 border-arena-accent text-arena-accent shadow-[0_0_15px_rgba(0,212,255,0.25)]"
@@ -956,7 +764,7 @@ export default function MultiplayerPage() {
               </div>
             </div>
 
-            {/* Questions count */}
+            {/* Question Count */}
             <div>
               <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
                 Rounds (Questions)
@@ -966,7 +774,10 @@ export default function MultiplayerPage() {
                   <button
                     key={c}
                     type="button"
-                    onClick={() => { setSelectedCount(c); audio.click(); }}
+                    onClick={() => {
+                      setSelectedCount(c);
+                      audio.click();
+                    }}
                     className={`flex-1 py-1.5 text-xs rounded-lg font-bold border transition-all ${
                       selectedCount === c
                         ? "bg-white/[.08] border-arena-accent text-arena-text"
@@ -982,14 +793,14 @@ export default function MultiplayerPage() {
             <motion.button
               className="arena-btn arena-btn-primary w-full justify-center py-3"
               onClick={createRoom}
-              disabled={!supabase || isCreating}
+              disabled={isCreating}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
               {isCreating ? (
                 <>
                   <Loader2 size={17} className="animate-spin" />
-                  Generating Questions & Creating Room...
+                  Generating AI Questions & Creating Room...
                 </>
               ) : (
                 <>
@@ -1000,7 +811,7 @@ export default function MultiplayerPage() {
             </motion.button>
           </motion.div>
 
-          {/* Join */}
+          {/* Join Room Card */}
           <motion.div
             className="lg:col-span-5 arena-card arena-card-shine space-y-4 flex flex-col justify-between"
             initial={{ opacity: 0, y: 16 }}
@@ -1013,7 +824,7 @@ export default function MultiplayerPage() {
                 Enter Room Code
               </h3>
               <p className="text-xs text-arena-muted leading-relaxed">
-                Got an invite code from a friend? Paste it below to join their custom match settings.
+                Got a 6-digit code from your friend? Enter it below to jump straight into their custom room.
               </p>
 
               <label className="block">
@@ -1039,14 +850,14 @@ export default function MultiplayerPage() {
             <motion.button
               className="arena-btn arena-btn-ghost w-full justify-center py-3"
               onClick={joinRoom}
-              disabled={!supabase || codeInput.length < 4 || isJoining}
+              disabled={codeInput.length < 4 || isJoining}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
               {isJoining ? (
                 <>
                   <Loader2 size={17} className="animate-spin" />
-                  Loading Room...
+                  Joining Room...
                 </>
               ) : (
                 <>
@@ -1057,25 +868,11 @@ export default function MultiplayerPage() {
             </motion.button>
           </motion.div>
         </div>
-
-        {!supabase && (
-          <motion.div
-            className="arena-notice mt-4 max-w-3xl"
-            data-variant="error"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-          >
-            <AlertCircle size={14} className="inline mr-1 align-[-2px]" />
-            Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-            to .env.local to enable realtime multiplayer.
-          </motion.div>
-        )}
       </main>
     );
   }
 
-  // ── Lobby ───────────────────────────────────────────────
+  // ── Lobby View ───────────────────────────────────────────
   if (status === "lobby") {
     return (
       <main className="arena-container pb-16">
@@ -1098,7 +895,6 @@ export default function MultiplayerPage() {
           >
             <div className="arena-eyebrow mb-3 justify-center">1v1 Room Code</div>
 
-            {/* Glowing room code */}
             <div className="font-display text-5xl font-bold tracking-[0.16em] mb-5 arena-glow-halo inline-block">
               <span className="arena-gradient-text">{roomCode}</span>
             </div>
@@ -1117,8 +913,15 @@ export default function MultiplayerPage() {
             {roomSettings && (
               <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
                 <span className="arena-pill px-2.5 py-1 text-xs">{roomSettings.sport}</span>
-                <span className="arena-pill px-2.5 py-1 text-xs text-arena-accent font-bold">{roomSettings.difficulty}</span>
-                <span className="arena-pill px-2.5 py-1 text-xs">{questions.length} Questions</span>
+                <span className="arena-pill px-2.5 py-1 text-xs text-arena-accent font-bold">
+                  {roomSettings.difficulty}
+                </span>
+                {roomSettings.tournament && roomSettings.tournament !== "All Tournaments" && (
+                  <span className="arena-pill px-2.5 py-1 text-xs">{roomSettings.tournament}</span>
+                )}
+                {roomSettings.count && (
+                  <span className="arena-pill px-2.5 py-1 text-xs">{roomSettings.count} Questions</span>
+                )}
               </div>
             )}
 
@@ -1132,7 +935,7 @@ export default function MultiplayerPage() {
                   <WifiOff size={14} className="text-arena-bad" />
                 )}
                 <span className="text-sm text-arena-muted">
-                  {connected ? "Realtime Synced" : "Connecting..."}
+                  {connected ? "Socket.IO Live & Synced" : "Connecting to Socket.IO..."}
                 </span>
               </div>
 
@@ -1156,7 +959,8 @@ export default function MultiplayerPage() {
                       <div
                         className="w-8 h-8 rounded-full grid place-items-center text-xs font-bold"
                         style={{
-                          background: id === myIdRef.current ? "rgba(0, 212, 255, 0.12)" : "rgba(168, 85, 247, 0.12)",
+                          background:
+                            id === myIdRef.current ? "rgba(0, 212, 255, 0.12)" : "rgba(168, 85, 247, 0.12)",
                           color: id === myIdRef.current ? "#00d4ff" : "#a855f7",
                         }}
                       >
@@ -1211,7 +1015,7 @@ export default function MultiplayerPage() {
               </div>
             </div>
 
-            {/* Event log — terminal style */}
+            {/* Live event log */}
             {events.length > 0 && (
               <div className="mt-5 text-left bg-black/20 rounded-xl p-3 border border-arena-line">
                 {events.map((e, i) => (
@@ -1234,11 +1038,13 @@ export default function MultiplayerPage() {
     );
   }
 
-  // ── Playing ─────────────────────────────────────────────
+  // ── Playing View ─────────────────────────────────────────
   if (status === "playing" && q) {
+    const isRevealed = phase === "revealed";
+
     return (
       <main className="arena-container pb-16">
-        {/* Score & Timer bar */}
+        {/* Score & Synchronized Status Bar */}
         <div className="flex justify-between items-center py-4 flex-wrap gap-3">
           <div className="flex items-center gap-2.5">
             <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
@@ -1249,32 +1055,31 @@ export default function MultiplayerPage() {
             </div>
           </div>
 
-          {/* Active Timer Pill & Actions */}
           <div className="flex items-center gap-2">
-            {!buzzWinner && !showAnswer && (
+            {!buzzWinner && !isRevealed && (
               <div
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all ${
-                  questionTime <= 5
+                  timeRemaining <= 5
                     ? "bg-arena-bad/20 border-arena-bad text-arena-bad shadow-[0_0_12px_rgba(239,68,68,0.4)] animate-pulse"
-                    : questionTime <= 8
+                    : timeRemaining <= 8
                     ? "bg-arena-warn/20 border-arena-warn text-arena-warn"
                     : "bg-white/[.04] border-arena-line text-arena-accent"
                 }`}
               >
-                <Clock size={14} className={questionTime <= 5 ? "animate-spin" : ""} />
-                <span>Buzzer: {questionTime}s</span>
+                <Clock size={14} className={timeRemaining <= 5 ? "animate-spin" : ""} />
+                <span>Buzzer: {timeRemaining}s</span>
               </div>
             )}
 
-            {buzzWinner && !showAnswer && (
+            {buzzWinner && !isRevealed && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-arena-warn/50 bg-arena-warn/15 text-arena-warn text-xs font-mono font-bold animate-pulse shadow-[0_0_12px_rgba(245,158,11,0.3)]">
                 <Clock size={14} />
-                <span>{iAmBuzzWinner ? `Answer: ${answerTime}s` : `Opponent: ${answerTime}s`}</span>
+                <span>{iAmBuzzWinner ? `Answer: ${timeRemaining}s` : `Opponent: ${timeRemaining}s`}</span>
               </div>
             )}
 
             <div className="arena-pill font-mono font-semibold">
-              Q{currentQ + 1}/{questions.length || 10}
+              Q{currentQ + 1}/{totalQ}
             </div>
 
             <button
@@ -1288,7 +1093,7 @@ export default function MultiplayerPage() {
           </div>
         </div>
 
-        {/* Question */}
+        {/* Question Card */}
         <AnimatePresence mode="wait">
           <motion.div
             key={currentQ}
@@ -1298,68 +1103,70 @@ export default function MultiplayerPage() {
             exit={{ opacity: 0, y: -14, scale: 0.98 }}
             transition={{ duration: 0.25, ease: [0.2, 0.9, 0.3, 1] }}
           >
-            {/* Top Timer Progress Bar */}
-            {!showAnswer && (
+            {/* Top Timer Progress Bar (Authoritative server clock) */}
+            {!isRevealed && (
               <div className="absolute top-0 left-0 right-0 h-1.5 bg-white/[.05] overflow-hidden">
-                <motion.div
+                <div
                   className={`h-full transition-all duration-300 ${
                     buzzWinner
                       ? "bg-arena-warn"
-                      : questionTime <= 5
+                      : timeRemaining <= 5
                       ? "bg-arena-bad"
-                      : questionTime <= 8
+                      : timeRemaining <= 8
                       ? "bg-arena-warn"
                       : "bg-arena-accent"
                   }`}
                   style={{
                     width: buzzWinner
-                      ? `${(answerTime / 8) * 100}%`
-                      : `${(questionTime / 15) * 100}%`,
+                      ? `${Math.max(0, (timeRemaining / 8) * 100)}%`
+                      : `${Math.max(0, (timeRemaining / 15) * 100)}%`,
                   }}
                 />
               </div>
             )}
 
-            <div className="flex gap-2 mb-3 pt-1">
-              <span className="arena-pill">{q.sport}</span>
-              <span className="arena-pill">{q.difficulty}</span>
-              {timedOut && (
+            <div className="flex gap-2 mb-3 pt-1 flex-wrap">
+              {q.sport && <span className="arena-pill">{q.sport}</span>}
+              {q.difficulty && <span className="arena-pill">{q.difficulty}</span>}
+              {q.category && <span className="arena-pill">{q.category}</span>}
+              {isTimedOut && (
                 <span className="arena-pill bg-arena-bad/20 text-arena-bad border-arena-bad/40 font-bold">
                   Timed Out!
                 </span>
               )}
             </div>
+
             <h2 className="font-display text-[clamp(22px,3.5vw,38px)] leading-[1.12] tracking-tight mb-6 font-bold">
               {q.question}
             </h2>
 
-            {/* Buzzer phase */}
-            {!buzzWinner && !showAnswer && (
+            {/* Buzzer Phase */}
+            {!buzzWinner && !isRevealed && (
               <div className="flex flex-col items-center justify-center py-10 gap-3">
                 <motion.button
                   className="arena-buzzer"
                   onClick={buzz}
-                  disabled={myBuzzed || questionTime === 0}
+                  disabled={myBuzzed || timeRemaining === 0}
                   whileTap={{ scale: 0.88 }}
                   whileHover={{ scale: 1.06 }}
                 >
                   BUZZ!
                 </motion.button>
                 <span className="text-xs text-arena-muted font-mono tracking-wide">
-                  Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[11px] border border-white/20">SPACE</kbd> or click to buzz • {questionTime}s left
+                  Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[11px] border border-white/20">SPACE</kbd> or click to buzz • {timeRemaining}s left
                 </span>
               </div>
             )}
 
-            {/* Answer phase (buzz winner answers) */}
-            {buzzWinner && !showAnswer && iAmBuzzWinner && (
+            {/* Answering Phase: You won the buzz */}
+            {buzzWinner && !isRevealed && iAmBuzzWinner && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs font-semibold px-1 text-arena-accent">
                   <span>⚡ You buzzed first! Select your answer:</span>
-                  <span className="font-mono text-arena-warn font-bold">{answerTime}s remaining</span>
+                  <span className="font-mono text-arena-warn font-bold">{timeRemaining}s remaining</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {q.options.map((option, i) => (
+                  {q.options?.map((option, i) => (
                     <motion.button
                       key={i}
                       className="arena-answer"
@@ -1379,8 +1186,8 @@ export default function MultiplayerPage() {
               </div>
             )}
 
-            {/* Waiting for buzz winner to answer */}
-            {buzzWinner && !showAnswer && !iAmBuzzWinner && (
+            {/* Answering Phase: Opponent won the buzz */}
+            {buzzWinner && !isRevealed && !iAmBuzzWinner && (
               <div className="text-center py-10 text-arena-muted space-y-2">
                 <motion.div
                   className="font-display text-xl text-arena-text font-bold"
@@ -1390,28 +1197,28 @@ export default function MultiplayerPage() {
                   Opponent buzzed!
                 </motion.div>
                 <div className="text-xs text-arena-muted">
-                  Opponent has <span className="text-arena-warn font-mono font-bold">{answerTime}s</span> to answer...
+                  Opponent has <span className="text-arena-warn font-mono font-bold">{timeRemaining}s</span> to answer...
                 </div>
               </div>
             )}
 
-            {/* Timed out with no buzz */}
-            {timedOut && (
+            {/* Timed Out (No buzz) */}
+            {isTimedOut && !buzzWinner && (
               <div className="text-center py-4 text-arena-bad font-display text-lg font-bold">
                 ⌛ Time expired — no one buzzed!
               </div>
             )}
 
-            {/* Show answer result */}
-            {showAnswer && (
+            {/* Revealed Answer Result */}
+            {isRevealed && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {q.options.map((option, i) => {
+                {q.options?.map((option, i) => {
                   const state =
-                    i === q.answer
+                    i === revealedAnswer
                       ? "correct"
                       : i === selectedAnswer
-                        ? "wrong"
-                        : "dim";
+                      ? "wrong"
+                      : "dim";
                   return (
                     <motion.div
                       key={i}
@@ -1425,10 +1232,10 @@ export default function MultiplayerPage() {
                         {["A", "B", "C", "D"][i]}
                       </span>
                       <span className="text-[15px]">{option}</span>
-                      {i === q.answer && (
+                      {i === revealedAnswer && (
                         <Check size={16} className="text-arena-good flex-shrink-0" />
                       )}
-                      {i === selectedAnswer && i !== q.answer && (
+                      {i === selectedAnswer && i !== revealedAnswer && (
                         <X size={16} className="text-arena-bad flex-shrink-0" />
                       )}
                     </motion.div>
@@ -1439,7 +1246,7 @@ export default function MultiplayerPage() {
           </motion.div>
         </AnimatePresence>
 
-        {/* Event log */}
+        {/* Live event log */}
         {events.length > 0 && (
           <div className="mt-4 bg-black/15 rounded-xl p-3 border border-arena-line">
             {events.slice(0, 3).map((e, i) => (
@@ -1454,7 +1261,7 @@ export default function MultiplayerPage() {
     );
   }
 
-  // ── Finished ────────────────────────────────────────────
+  // ── Finished View ────────────────────────────────────────
   if (status === "finished") {
     const won = myScore > opponentScore;
     const tied = myScore === opponentScore;
@@ -1489,8 +1296,8 @@ export default function MultiplayerPage() {
               {won
                 ? "You dominated the buzzer. Excellent reactions."
                 : tied
-                  ? "Perfectly matched. Run it back?"
-                  : "Close game. The buzzer waits for no one."}
+                ? "Perfect match. Every second was contested."
+                : "Close game. The buzzer waits for no one."}
             </p>
             <div className="flex gap-3 justify-center flex-wrap">
               <motion.button
