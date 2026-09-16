@@ -85,18 +85,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insertError.message || "Failed to join room" }, { status: 500 });
     }
 
-    // If there are now 2 players, update room status to 'ready'
-    await adminClient
-      .from("game_rooms")
-      .update({ status: "ready", updated_at: new Date().toISOString() })
-      .eq("id", room.id);
-
     return NextResponse.json({
       success: true,
-      playerId: newPlayer.id,
+      playerId: newPlayer?.id,
       isHost: false,
       role: "guest",
-      roomStatus: "ready",
+      roomStatus: "waiting",
     });
   } catch (error) {
     return NextResponse.json(
@@ -133,7 +127,13 @@ export async function PATCH(req: Request) {
 
     // If status or currentRound is given, update room
     const roomUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (status) roomUpdates.status = status;
+    if (status) {
+      // Strictly conform to DB constraint: check (status in ('waiting','live','finished'))
+      const normalizedStatus = status === "playing" ? "live" : status;
+      if (["waiting", "live", "finished"].includes(normalizedStatus)) {
+        roomUpdates.status = normalizedStatus;
+      }
+    }
     if (typeof currentRound === "number") roomUpdates.current_round = currentRound;
 
     if (Object.keys(roomUpdates).length > 1) {
@@ -158,6 +158,72 @@ export async function PATCH(req: Request) {
     }
 
     return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Internal error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const roomCode = searchParams.get("code")?.toUpperCase();
+    const playerToken = searchParams.get("token");
+
+    if (!roomCode || !playerToken) {
+      return NextResponse.json({ error: "Missing room code or player token" }, { status: 400 });
+    }
+
+    const adminClient = getSupabaseAdminClient();
+    if (!adminClient) {
+      return NextResponse.json({ success: true, mock: true });
+    }
+
+    // Find room
+    const { data: room } = await adminClient
+      .from("game_rooms")
+      .select("id, settings")
+      .eq("code", roomCode)
+      .maybeSingle();
+
+    if (!room) {
+      return NextResponse.json({ success: true, message: "Room already closed." });
+    }
+
+    // Find players to determine if this player is the creator (first player)
+    const { data: players } = await adminClient
+      .from("game_players")
+      .select("id, player_token")
+      .eq("room_id", room.id)
+      .order("created_at", { ascending: true });
+
+    const playerList = players || [];
+    const hostToken = (room.settings as { hostToken?: string } | null)?.hostToken;
+    const isCreator = hostToken ? hostToken === playerToken : playerList[0]?.player_token === playerToken;
+
+    if (isCreator) {
+      // Creator leaves -> delete room completely (cascades and cancels match for everyone)
+      await adminClient.from("game_players").delete().eq("room_id", room.id);
+      await adminClient.from("game_events").delete().eq("room_id", room.id);
+      await adminClient.from("game_rooms").delete().eq("id", room.id);
+      return NextResponse.json({ success: true, roomClosed: true, role: "creator" });
+    } else {
+      // Guest leaves -> only remove this guest, room remains active for host
+      await adminClient
+        .from("game_players")
+        .delete()
+        .eq("room_id", room.id)
+        .eq("player_token", playerToken);
+
+      await adminClient
+        .from("game_rooms")
+        .update({ status: "waiting", updated_at: new Date().toISOString() })
+        .eq("id", room.id);
+
+      return NextResponse.json({ success: true, roomClosed: false, role: "guest" });
+    }
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Internal error" },

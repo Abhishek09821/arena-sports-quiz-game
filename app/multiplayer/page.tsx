@@ -15,6 +15,7 @@ import {
   X,
   Loader2,
   Sparkles,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -74,7 +75,21 @@ export default function MultiplayerPage() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [roomSettings, setRoomSettings] = useState<{ sport: string; difficulty: string; hostName: string } | null>(null);
 
+  // Timer & Buzzer state
+  const [questionTime, setQuestionTime] = useState<number>(15);
+  const [answerTime, setAnswerTime] = useState<number>(8);
+  const [timedOut, setTimedOut] = useState<boolean>(false);
+
+  // Synchronized refs for Realtime and timers
   const myIdRef = useRef<string>("usr_init");
+  const nameRef = useRef<string>(name);
+  nameRef.current = name;
+  const isHostRef = useRef<boolean>(isHost);
+  isHostRef.current = isHost;
+  const questionsRef = useRef<Question[]>(questions);
+  questionsRef.current = questions;
+  const currentQRef = useRef<number>(currentQ);
+  currentQRef.current = currentQ;
   const channelRef = useRef<ReturnType<typeof supabase extends null ? never : NonNullable<typeof supabase>["channel"]> | null>(null);
 
   const addEvent = useCallback((msg: string) => {
@@ -86,6 +101,21 @@ export default function MultiplayerPage() {
     if (!code) return;
     try {
       const res = await fetch(`/api/multiplayer/room?code=${code}`);
+      if (res.status === 404) {
+        // Room was closed or deleted by host!
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("arena_mp_session");
+        }
+        channelRef.current?.unsubscribe();
+        channelRef.current = null;
+        setStatus("idle");
+        setRoomCode("");
+        setCodeInput("");
+        setPlayers({});
+        setJoinError("The room was closed by the host.");
+        return;
+      }
+
       const data = await res.json();
       if (!res.ok || !data.success || !data.room) {
         return;
@@ -125,19 +155,22 @@ export default function MultiplayerPage() {
         if (opp) setOpponentScore(opp.score || 0);
 
         // Determine host role
-        if (data.players[0]?.player_token === token) {
+        if (data.hostToken) {
+          setIsHost(data.hostToken === token);
+        } else if (data.players[0]?.player_token === token) {
           setIsHost(true);
         }
       }
 
       // Sync room status
       const remoteStatus = data.room.status;
-      if (remoteStatus === "playing") {
+      if (remoteStatus === "playing" || remoteStatus === "live") {
         setStatus("playing");
       } else if (remoteStatus === "finished") {
         setStatus("finished");
       } else if (remoteStatus === "ready" || remoteStatus === "waiting") {
-        setStatus("lobby");
+        // Do NOT eject back to lobby if we are currently playing
+        setStatus((prev) => (prev === "playing" ? "playing" : "lobby"));
       }
     } catch (err) {
       console.warn("[Multiplayer Sync] Error fetching room state:", err);
@@ -305,15 +338,32 @@ export default function MultiplayerPage() {
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("arena_mp_session");
     }
-    if (roomCode) {
-      try {
-        await fetch("/api/multiplayer/player", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomCode, playerToken: myIdRef.current, connected: false }),
+    const codeToLeave = roomCode;
+    const amHost = isHostRef.current;
+    if (codeToLeave) {
+      if (amHost) {
+        channelRef.current?.send({
+          type: "broadcast",
+          event: "room_closed",
+          payload: { roomCode: codeToLeave },
         });
-      } catch {}
+      } else {
+        channelRef.current?.send({
+          type: "broadcast",
+          event: "player_left",
+          payload: { id: myIdRef.current, name: nameRef.current },
+        });
+      }
+
+      try {
+        await fetch(`/api/multiplayer/player?code=${codeToLeave}&token=${myIdRef.current}`, {
+          method: "DELETE",
+        });
+      } catch (err) {
+        console.warn("[Multiplayer] Error calling leave DELETE:", err);
+      }
     }
+
     channelRef.current?.unsubscribe();
     channelRef.current = null;
     setStatus("idle");
@@ -325,6 +375,11 @@ export default function MultiplayerPage() {
     setCurrentQ(0);
     setJoinError(null);
     setIsHost(false);
+    setBuzzWinner(null);
+    setMyBuzzed(false);
+    setSelectedAnswer(null);
+    setShowAnswer(false);
+    setTimedOut(false);
   }, [roomCode]);
 
   // Connect to Supabase Realtime channel for instant buzzers and answer feedback
@@ -348,8 +403,29 @@ export default function MultiplayerPage() {
           audio.opponentJoined();
         }
       })
+      .on("broadcast", { event: "room_closed" }, () => {
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("arena_mp_session");
+        }
+        channelRef.current?.unsubscribe();
+        channelRef.current = null;
+        setStatus("idle");
+        setRoomCode("");
+        setCodeInput("");
+        setPlayers({});
+        setJoinError("The room was closed by the host.");
+        audio.wrong();
+      })
+      .on("broadcast", { event: "player_left" }, ({ payload }) => {
+        setPlayers((prev) => {
+          const updated = { ...prev };
+          delete updated[payload.id];
+          return updated;
+        });
+        addEvent(`${payload.name} left the room`);
+      })
       .on("broadcast", { event: "game_start" }, ({ payload }) => {
-        if (payload.questions) {
+        if (payload.questions && payload.questions.length > 0) {
           setQuestions(payload.questions);
         }
         setStatus("playing");
@@ -358,19 +434,51 @@ export default function MultiplayerPage() {
         setMyBuzzed(false);
         setSelectedAnswer(null);
         setShowAnswer(false);
+        setTimedOut(false);
+        setQuestionTime(15);
+        setAnswerTime(8);
         addEvent("Match started! Rapid buzzer active.");
         audio.click();
       })
       .on("broadcast", { event: "buzz" }, ({ payload }) => {
-        if (!buzzWinner) {
-          setBuzzWinner(payload.id);
-          if (payload.id === myIdRef.current) {
-            addEvent("You buzzed first! ✨");
-          } else {
-            addEvent(`${payload.name} buzzed first!`);
+        setBuzzWinner((currentWinner) => {
+          if (!currentWinner) {
+            if (payload.id === myIdRef.current) {
+              addEvent("You buzzed first! ✨");
+            } else {
+              addEvent(`${payload.name} buzzed first!`);
+            }
+            audio.buzzer();
+            setAnswerTime(8);
+            return payload.id;
           }
-          audio.buzzer();
-        }
+          return currentWinner;
+        });
+      })
+      .on("broadcast", { event: "question_timeout" }, () => {
+        setTimedOut(true);
+        setShowAnswer(true);
+        audio.timeout();
+        addEvent("Time expired — no one buzzed!");
+
+        setTimeout(() => {
+          setBuzzWinner(null);
+          setMyBuzzed(false);
+          setSelectedAnswer(null);
+          setShowAnswer(false);
+          setTimedOut(false);
+          setQuestionTime(15);
+          setAnswerTime(8);
+          setCurrentQ((prev) => {
+            const nextQ = prev + 1;
+            const total = questionsRef.current.length || 10;
+            if (nextQ >= total) {
+              setStatus("finished");
+              audio.roundComplete();
+            }
+            return nextQ;
+          });
+        }, 2500);
       })
       .on("broadcast", { event: "answer" }, ({ payload }) => {
         setShowAnswer(true);
@@ -381,9 +489,15 @@ export default function MultiplayerPage() {
           } else {
             setOpponentScore((s) => s + 100);
           }
+          audio.correct();
+        } else {
+          audio.wrong();
         }
+
         addEvent(
-          payload.correct
+          payload.answer === -1
+            ? `${payload.name} ran out of time! ⌛`
+            : payload.correct
             ? `${payload.name} answered correctly! +100`
             : `${payload.name} got it wrong.`
         );
@@ -394,9 +508,12 @@ export default function MultiplayerPage() {
           setMyBuzzed(false);
           setSelectedAnswer(null);
           setShowAnswer(false);
+          setTimedOut(false);
+          setQuestionTime(15);
+          setAnswerTime(8);
           setCurrentQ((prev) => {
             const nextQ = prev + 1;
-            const total = questions.length || 10;
+            const total = questionsRef.current.length || 10;
             if (nextQ >= total) {
               setStatus("finished");
               audio.roundComplete();
@@ -431,11 +548,11 @@ export default function MultiplayerPage() {
           channel.send({
             type: "broadcast",
             event: "player_join",
-            payload: { id: myIdRef.current, name },
+            payload: { id: myIdRef.current, name: nameRef.current },
           });
           setPlayers((prev) => ({
             ...prev,
-            [myIdRef.current]: { name, score: 0, ready: true, connected: true },
+            [myIdRef.current]: { name: nameRef.current, score: 0, ready: true, connected: true },
           }));
         }
       });
@@ -444,13 +561,13 @@ export default function MultiplayerPage() {
       channel.send({
         type: "broadcast",
         event: "disconnect",
-        payload: { id: myIdRef.current, name },
+        payload: { id: myIdRef.current, name: nameRef.current },
       });
       void channel.unsubscribe();
       channelRef.current = null;
       setConnected(false);
     };
-  }, [roomCode, status, name, addEvent, questions.length, myScore, buzzWinner]);
+  }, [roomCode, addEvent]);
 
   const startGame = async () => {
     audio.click();
@@ -460,12 +577,12 @@ export default function MultiplayerPage() {
       event: "game_start",
       payload: { questions },
     });
-    // 2. Persist room status in Supabase
+    // 2. Persist room status in Supabase using valid constraint 'live'
     try {
       await fetch("/api/multiplayer/player", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomCode, status: "playing", currentRound: 0 }),
+        body: JSON.stringify({ roomCode, status: "live", currentRound: 0 }),
       });
     } catch {}
     setStatus("playing");
@@ -474,28 +591,139 @@ export default function MultiplayerPage() {
     setMyBuzzed(false);
     setSelectedAnswer(null);
     setShowAnswer(false);
+    setTimedOut(false);
+    setQuestionTime(15);
+    setAnswerTime(8);
   };
 
-  const buzz = () => {
-    if (buzzWinner || myBuzzed) return;
+  const buzz = useCallback(() => {
+    if (buzzWinner || myBuzzed || showAnswer || timedOut) return;
     setMyBuzzed(true);
     channelRef.current?.send({
       type: "broadcast",
       event: "buzz",
-      payload: { id: myIdRef.current, name, timestamp: Date.now() },
+      payload: { id: myIdRef.current, name: nameRef.current, timestamp: Date.now() },
     });
-  };
+  }, [buzzWinner, myBuzzed, showAnswer, timedOut]);
 
-  const submitAnswer = (answer: number) => {
+  const submitAnswer = useCallback((answer: number) => {
     const currentQuestion = questions[currentQ];
     if (!currentQuestion) return;
     const correct = answer === currentQuestion.answer;
     channelRef.current?.send({
       type: "broadcast",
       event: "answer",
-      payload: { id: myIdRef.current, name, answer, correct },
+      payload: { id: myIdRef.current, name: nameRef.current, answer, correct },
     });
-  };
+  }, [questions, currentQ]);
+
+  // 15s Question Buzzer Timer
+  useEffect(() => {
+    if (status !== "playing" || buzzWinner || showAnswer || timedOut) return;
+
+    const timer = setInterval(() => {
+      setQuestionTime((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          if (isHostRef.current) {
+            channelRef.current?.send({
+              type: "broadcast",
+              event: "question_timeout",
+            });
+          }
+          setTimedOut(true);
+          setShowAnswer(true);
+          audio.timeout();
+          addEvent("Time expired — no one buzzed!");
+
+          setTimeout(() => {
+            setBuzzWinner(null);
+            setMyBuzzed(false);
+            setSelectedAnswer(null);
+            setShowAnswer(false);
+            setTimedOut(false);
+            setQuestionTime(15);
+            setAnswerTime(8);
+            setCurrentQ((q) => {
+              const nextQ = q + 1;
+              const total = questionsRef.current.length || 10;
+              if (nextQ >= total) {
+                setStatus("finished");
+                audio.roundComplete();
+              }
+              return nextQ;
+            });
+          }, 2500);
+
+          return 0;
+        }
+
+        if (prev <= 6 && prev > 2) {
+          audio.tick();
+        } else if (prev === 2) {
+          audio.urgentTick();
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [status, buzzWinner, showAnswer, timedOut, addEvent]);
+
+  // 8s Answer Timer for Buzzer Winner
+  useEffect(() => {
+    if (status !== "playing" || !buzzWinner || showAnswer || timedOut) return;
+
+    const timer = setInterval(() => {
+      setAnswerTime((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          // If this client is the buzz winner, auto-submit timeout
+          if (buzzWinner === myIdRef.current) {
+            audio.timeout();
+            addEvent("Time expired! You didn't select an answer in 8s.");
+            channelRef.current?.send({
+              type: "broadcast",
+              event: "answer",
+              payload: {
+                id: myIdRef.current,
+                name: nameRef.current,
+                answer: -1,
+                correct: false,
+              },
+            });
+          }
+          return 0;
+        }
+
+        if (buzzWinner === myIdRef.current) {
+          if (prev <= 3) {
+            audio.urgentTick();
+          } else {
+            audio.tick();
+          }
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [status, buzzWinner, showAnswer, timedOut, addEvent]);
+
+  // Keyboard Spacebar shortcut to Buzz
+  useEffect(() => {
+    if (status !== "playing" || buzzWinner || myBuzzed || showAnswer || timedOut) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        buzz();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [status, buzzWinner, myBuzzed, showAnswer, timedOut, buzz]);
 
   const copyCode = () => {
     navigator.clipboard?.writeText(roomCode);
@@ -898,9 +1126,9 @@ export default function MultiplayerPage() {
   if (status === "playing" && q) {
     return (
       <main className="arena-container pb-16">
-        {/* Score bar */}
-        <div className="flex justify-between items-center py-4">
-          <div className="flex gap-2.5">
+        {/* Score & Timer bar */}
+        <div className="flex justify-between items-center py-4 flex-wrap gap-3">
+          <div className="flex items-center gap-2.5">
             <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
               You: <span className="text-arena-accent font-display">{myScore}</span>
             </div>
@@ -908,8 +1136,43 @@ export default function MultiplayerPage() {
               Opp: <span className="text-arena-bad font-display">{opponentScore}</span>
             </div>
           </div>
-          <div className="arena-pill">
-            Q{currentQ + 1}/10
+
+          {/* Active Timer Pill & Actions */}
+          <div className="flex items-center gap-2">
+            {!buzzWinner && !showAnswer && (
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all ${
+                  questionTime <= 5
+                    ? "bg-arena-bad/20 border-arena-bad text-arena-bad shadow-[0_0_12px_rgba(239,68,68,0.4)] animate-pulse"
+                    : questionTime <= 8
+                    ? "bg-arena-warn/20 border-arena-warn text-arena-warn"
+                    : "bg-white/[.04] border-arena-line text-arena-accent"
+                }`}
+              >
+                <Clock size={14} className={questionTime <= 5 ? "animate-spin" : ""} />
+                <span>Buzzer: {questionTime}s</span>
+              </div>
+            )}
+
+            {buzzWinner && !showAnswer && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-arena-warn/50 bg-arena-warn/15 text-arena-warn text-xs font-mono font-bold animate-pulse shadow-[0_0_12px_rgba(245,158,11,0.3)]">
+                <Clock size={14} />
+                <span>{iAmBuzzWinner ? `Answer: ${answerTime}s` : `Opponent: ${answerTime}s`}</span>
+              </div>
+            )}
+
+            <div className="arena-pill font-mono font-semibold">
+              Q{currentQ + 1}/{questions.length || 10}
+            </div>
+
+            <button
+              type="button"
+              onClick={leaveRoom}
+              className="text-xs text-arena-muted hover:text-arena-bad transition-colors px-2 py-1 rounded-lg hover:bg-white/[.04]"
+              title="Leave Room"
+            >
+              Leave
+            </button>
           </div>
         </div>
 
@@ -917,67 +1180,113 @@ export default function MultiplayerPage() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentQ}
-            className="arena-question-card mt-2"
+            className="arena-question-card mt-2 relative overflow-hidden"
             initial={{ opacity: 0, y: 20, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -14, scale: 0.98 }}
             transition={{ duration: 0.25, ease: [0.2, 0.9, 0.3, 1] }}
           >
-            <div className="flex gap-2 mb-3">
+            {/* Top Timer Progress Bar */}
+            {!showAnswer && (
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-white/[.05] overflow-hidden">
+                <motion.div
+                  className={`h-full transition-all duration-300 ${
+                    buzzWinner
+                      ? "bg-arena-warn"
+                      : questionTime <= 5
+                      ? "bg-arena-bad"
+                      : questionTime <= 8
+                      ? "bg-arena-warn"
+                      : "bg-arena-accent"
+                  }`}
+                  style={{
+                    width: buzzWinner
+                      ? `${(answerTime / 8) * 100}%`
+                      : `${(questionTime / 15) * 100}%`,
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="flex gap-2 mb-3 pt-1">
               <span className="arena-pill">{q.sport}</span>
               <span className="arena-pill">{q.difficulty}</span>
+              {timedOut && (
+                <span className="arena-pill bg-arena-bad/20 text-arena-bad border-arena-bad/40 font-bold">
+                  Timed Out!
+                </span>
+              )}
             </div>
             <h2 className="font-display text-[clamp(22px,3.5vw,38px)] leading-[1.12] tracking-tight mb-6 font-bold">
               {q.question}
             </h2>
 
             {/* Buzzer phase */}
-            {!buzzWinner && (
-              <div className="flex justify-center py-10">
+            {!buzzWinner && !showAnswer && (
+              <div className="flex flex-col items-center justify-center py-10 gap-3">
                 <motion.button
                   className="arena-buzzer"
                   onClick={buzz}
-                  disabled={myBuzzed}
+                  disabled={myBuzzed || questionTime === 0}
                   whileTap={{ scale: 0.88 }}
                   whileHover={{ scale: 1.06 }}
                 >
                   BUZZ!
                 </motion.button>
+                <span className="text-xs text-arena-muted font-mono tracking-wide">
+                  Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[11px] border border-white/20">SPACE</kbd> or click to buzz • {questionTime}s left
+                </span>
               </div>
             )}
 
             {/* Answer phase (buzz winner answers) */}
             {buzzWinner && !showAnswer && iAmBuzzWinner && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {q.options.map((option, i) => (
-                  <motion.button
-                    key={i}
-                    className="arena-answer"
-                    onClick={() => submitAnswer(i)}
-                    whileTap={{ scale: 0.98 }}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.04 * i }}
-                  >
-                    <span className="arena-answer-key">
-                      {["A", "B", "C", "D"][i]}
-                    </span>
-                    <span className="text-[15px]">{option}</span>
-                  </motion.button>
-                ))}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs font-semibold px-1 text-arena-accent">
+                  <span>⚡ You buzzed first! Select your answer:</span>
+                  <span className="font-mono text-arena-warn font-bold">{answerTime}s remaining</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {q.options.map((option, i) => (
+                    <motion.button
+                      key={i}
+                      className="arena-answer"
+                      onClick={() => submitAnswer(i)}
+                      whileTap={{ scale: 0.98 }}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.04 * i }}
+                    >
+                      <span className="arena-answer-key">
+                        {["A", "B", "C", "D"][i]}
+                      </span>
+                      <span className="text-[15px]">{option}</span>
+                    </motion.button>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Waiting for buzz winner to answer */}
             {buzzWinner && !showAnswer && !iAmBuzzWinner && (
-              <div className="text-center py-10 text-arena-muted">
+              <div className="text-center py-10 text-arena-muted space-y-2">
                 <motion.div
-                  className="font-display text-xl mb-2"
+                  className="font-display text-xl text-arena-text font-bold"
                   animate={{ opacity: [0.5, 1, 0.5] }}
-                  transition={{ duration: 2, repeat: Infinity }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
                 >
-                  Opponent is answering...
+                  Opponent buzzed!
                 </motion.div>
+                <div className="text-xs text-arena-muted">
+                  Opponent has <span className="text-arena-warn font-mono font-bold">{answerTime}s</span> to answer...
+                </div>
+              </div>
+            )}
+
+            {/* Timed out with no buzz */}
+            {timedOut && (
+              <div className="text-center py-4 text-arena-bad font-display text-lg font-bold">
+                ⌛ Time expired — no one buzzed!
               </div>
             )}
 

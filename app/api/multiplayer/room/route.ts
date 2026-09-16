@@ -32,6 +32,7 @@ export async function POST(req: Request) {
           status: "waiting",
           settings: {
             hostName,
+            hostToken: playerToken,
             sport,
             difficulty,
             count,
@@ -117,6 +118,7 @@ export async function GET(req: Request) {
       sport: room.settings?.sport || "All Sports",
       difficulty: room.settings?.difficulty || "Mixed",
       hostName: room.settings?.hostName || "Host",
+      hostToken: room.settings?.hostToken || null,
       players: players || [],
     });
   } catch (error) {
