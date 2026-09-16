@@ -80,7 +80,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   const isPrefetchingRef = useRef(false);
 
   // Background question pre-fetcher for continuous rapid-fire stream
-  const fetchMoreQuestions = useCallback(async (isUrgent = false) => {
+  const fetchMoreQuestions = useCallback(async () => {
     if (isPrefetchingRef.current) return;
     const currentState = useQuizStore.getState();
     if (currentState.sprintTimeLeft <= 2) return;
@@ -110,16 +110,13 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
         appendQuestions(data.questions);
         markQuestionsSeen(data.questions.map((q: Question) => q.question.slice(0, 45)));
-        if (isUrgent && useQuizStore.getState().locked) {
-          next();
-        }
       }
     } catch (err) {
       console.warn("[Sprint] Background prefetch notice:", err);
     } finally {
       isPrefetchingRef.current = false;
     }
-  }, [sprintSport, sprintDifficulty, sprintTournament, appendQuestions, next]);
+  }, [sprintSport, sprintDifficulty, sprintTournament, appendQuestions]);
 
   // Initialize sprint with AI generated 25 questions via Grok
   const startSprint = useCallback(async () => {
@@ -240,7 +237,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       // Check if we are running low on questions and pre-fetch more in the background
       const currentState = useQuizStore.getState();
       if (currentState.questions.length - currentState.index <= 8 && currentState.sprintTimeLeft > 3) {
-        void fetchMoreQuestions(false);
+        void fetchMoreQuestions();
       }
 
       // Rapid auto-advance (snappy 220ms transition for 60s sprint)
@@ -250,15 +247,45 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           if (latestState.index < latestState.questions.length - 1) {
             next();
           } else {
-            // Reached the end of the current batch while time is still remaining!
-            // Fetch more immediately without ending the game!
-            void fetchMoreQuestions(true);
+            // Reached the end of the loaded queue!
+            // INSTANTLY provide reserve questions so the UI never pauses or gets stuck:
+            const emergencyBatch = buildGame({
+              sport: sprintSport,
+              difficulty: sprintDifficulty,
+              count: 10,
+            });
+            appendQuestions(emergencyBatch);
+            next();
+            // Also trigger background fetch for fresh AI questions
+            void fetchMoreQuestions();
           }
         }
       }, 220);
     },
-    [locked, finished, choose, sprintTimeLeft, next, incrementSprintAttempts, fetchMoreQuestions]
+    [locked, finished, choose, sprintTimeLeft, next, incrementSprintAttempts, fetchMoreQuestions, sprintSport, sprintDifficulty, appendQuestions]
   );
+
+  // Watchdog failsafe: Never let sprint get frozen on a locked question
+  useEffect(() => {
+    if (!gameStarted || finished || !locked || sprintTimeLeft <= 0) return;
+    const failsafe = setTimeout(() => {
+      const s = useQuizStore.getState();
+      if (s.locked && s.sprintTimeLeft > 0) {
+        if (s.index < s.questions.length - 1) {
+          next();
+        } else {
+          const emergencyBatch = buildGame({
+            sport: sprintSport,
+            difficulty: sprintDifficulty,
+            count: 10,
+          });
+          appendQuestions(emergencyBatch);
+          next();
+        }
+      }
+    }, 450);
+    return () => clearTimeout(failsafe);
+  }, [locked, gameStarted, finished, sprintTimeLeft, next, appendQuestions, sprintSport, sprintDifficulty]);
 
   // Keyboard navigation for Sprint mode (1-4 / A-D for rapid-fire answers, Enter/Space to start)
   useEffect(() => {

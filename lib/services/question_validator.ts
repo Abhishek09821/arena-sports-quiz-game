@@ -52,12 +52,15 @@ export function normalizeQuestionText(text: string): string {
  * Extracts a normalized question stem for similarity comparison
  */
 export function extractQuestionStem(text: string): string {
-  const norm = normalizeQuestionText(text);
-  return norm
-    .replace(/^(which|who|what|where|when|in which|during the|in)\s+/i, "")
+  let norm = normalizeQuestionText(text);
+  // Strip leading wh- words, articles, and prepositions
+  norm = norm
+    .replace(/^(which|who|what|where|when|in which|during the|in the|in|at the|at)\s+/i, "")
+    // Strip common tournament prefixes to prevent false intra-league duplicate collisions
+    .replace(/^(indian premier league|ipl|uefa champions league|champions league|fifa world cup|world cup|premier league|la liga|wrestlemania|royal rumble|summerslam|formula 1|f1|nba finals|nba)\s*,?\s*(which|who|what|where|when|in which|during the|in)?\s*/i, "")
     .replace(/[^a-z0-9\s]/g, "")
-    .trim()
-    .slice(0, 50);
+    .trim();
+  return norm.slice(0, 80);
 }
 
 /**

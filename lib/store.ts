@@ -176,12 +176,17 @@ export const useQuizStore = create<GameState>()(
   appendQuestions: (newQuestions) =>
     set((s) => {
       const existingIds = new Set(s.questions.map((q) => q.id));
-      const existingStems = new Set(
-        s.questions.map((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30))
+      const existingTexts = new Set(
+        s.questions.map((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, ""))
       );
       const filtered = newQuestions.filter((q) => {
-        const stem = q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
-        return !existingIds.has(q.id) && !existingStems.has(stem);
+        const norm = q.question.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (existingIds.has(q.id) || existingTexts.has(norm)) {
+          return false;
+        }
+        existingIds.add(q.id);
+        existingTexts.add(norm);
+        return true;
       });
       return {
         questions: [...s.questions, ...filtered],
