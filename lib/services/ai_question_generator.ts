@@ -130,7 +130,7 @@ Each object must have these exact keys:
  * Clean and parse raw JSON text from AI response
  */
 function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
-  let cleaned = rawText.trim();
+  let cleaned = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, "");
     cleaned = cleaned.replace(/\s*```$/, "");
@@ -140,14 +140,34 @@ function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
   const firstBracket = cleaned.indexOf("[");
   const lastBracket = cleaned.lastIndexOf("]");
   if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-    cleaned = cleaned.slice(firstBracket, lastBracket + 1);
+    const jsonSlice = cleaned.slice(firstBracket, lastBracket + 1);
+    try {
+      const parsed = JSON.parse(jsonSlice);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as RawGeneratedQuestion[];
+      }
+    } catch {
+      // Continue to object parse
+    }
   }
 
-  const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed)) {
-    throw new Error("AI response was not a JSON array.");
+  // Check object with array value (e.g. {"questions": [...]})
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const jsonSlice = cleaned.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(jsonSlice);
+      const possibleArray = Object.values(parsed).find((v) => Array.isArray(v));
+      if (Array.isArray(possibleArray) && possibleArray.length > 0) {
+        return possibleArray as RawGeneratedQuestion[];
+      }
+    } catch {
+      // Fall through
+    }
   }
-  return parsed as RawGeneratedQuestion[];
+
+  throw new Error("AI response was not a valid JSON question array.");
 }
 
 /**
@@ -165,6 +185,7 @@ async function generateViaGemini(options: GenerateOptions, apiKey: string, model
       generationConfig: {
         temperature: 0.7,
         topP: 0.95,
+        maxOutputTokens: 8192,
         responseMimeType: "application/json",
       },
     }),
@@ -185,7 +206,75 @@ async function generateViaGemini(options: GenerateOptions, apiKey: string, model
 }
 
 /**
- * Generate questions via Groq / xAI / OpenAI-compatible REST API (Primary for 1v1 & 60s Blitz modes)
+ * Internal single-batch caller for OpenAI-compatible REST APIs
+ */
+async function generateViaOpenAICompatibleSingle(
+  options: GenerateOptions,
+  baseUrl: string,
+  apiKey: string,
+  preferredModel: string
+): Promise<RawGeneratedQuestion[]> {
+  const candidateModels = [
+    preferredModel,
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+  ].filter((m, i, arr) => m && arr.indexOf(m) === i);
+
+  let lastError: Error | null = null;
+
+  for (const model of candidateModels) {
+    try {
+      const prompt = buildPrompt(options);
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are an expert sports trivia engine. You output ONLY valid JSON arrays containing sports trivia question objects. Never include markdown code fences or conversational text.",
+            },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.65,
+          max_tokens: 4096,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 404 || errorText.includes("model_not_found")) {
+          continue;
+        }
+        throw new Error(`AI API error (${response.status}): ${errorText.slice(0, 200)}`);
+      }
+
+      const data = await response.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) {
+        continue;
+      }
+
+      return parseAIJsonResponse(content);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw lastError || new Error("Failed to generate questions via AI provider");
+}
+
+/**
+ * Generate questions via Groq / xAI / OpenAI-compatible REST API (Primary for 1v1 & 60s Blitz modes).
+ * Supports parallel chunking for counts > 12 to guarantee fast, non-truncated generation.
  */
 async function generateViaOpenAICompatible(
   options: GenerateOptions,
@@ -193,48 +282,30 @@ async function generateViaOpenAICompatible(
   apiKey: string,
   model: string
 ): Promise<RawGeneratedQuestion[]> {
-  const prompt = buildPrompt(options);
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert sports trivia engine. You output ONLY valid JSON arrays containing sports trivia question objects. Never include markdown code fences or conversational text.",
-        },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.65,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`AI API error (${response.status}): ${errorText.slice(0, 300)}`);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("AI returned empty content.");
-  }
-
-  try {
-    return parseAIJsonResponse(content);
-  } catch {
-    const parsedObj = JSON.parse(content);
-    const possibleArray = Object.values(parsedObj).find((v) => Array.isArray(v));
-    if (Array.isArray(possibleArray)) {
-      return possibleArray as RawGeneratedQuestion[];
+  if (options.count > 12) {
+    const half1 = Math.ceil(options.count / 2);
+    const half2 = Math.floor(options.count / 2);
+    try {
+      const [batch1, batch2] = await Promise.all([
+        generateViaOpenAICompatibleSingle({ ...options, count: half1 }, baseUrl, apiKey, model),
+        generateViaOpenAICompatibleSingle({ ...options, count: half2 }, baseUrl, apiKey, model),
+      ]);
+      const combined = [...batch1];
+      const seen = new Set(batch1.map((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30)));
+      for (const q of batch2) {
+        const stem = q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
+        if (!seen.has(stem)) {
+          seen.add(stem);
+          combined.push(q);
+        }
+      }
+      return combined;
+    } catch {
+      // Fall through to single batch
     }
-    throw new Error("Could not find question array in JSON object.");
   }
+
+  return generateViaOpenAICompatibleSingle(options, baseUrl, apiKey, model);
 }
 
 /**

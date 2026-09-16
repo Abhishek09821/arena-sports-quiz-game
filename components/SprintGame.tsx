@@ -1,41 +1,45 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { Check, X, Zap, Flame, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuizStore } from "@/lib/store";
+import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
+import ResultsScreen from "@/components/ResultsScreen";
 import { audio } from "@/lib/audio";
 import { buildGame, getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
-import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Sport, type Difficulty, type Question } from "@/data/questions";
-import ResultsScreen from "@/components/ResultsScreen";
-import { useAuth } from "@/components/AuthContext";
+import { motion, AnimatePresence } from "motion/react";
+import { Zap, Flame, Check, X, Loader2 } from "lucide-react";
 
 const letters = ["A", "B", "C", "D"] as const;
 
 function SprintTimerRing({ time, urgent }: { time: number; urgent: boolean }) {
-  const radius = 42;
+  const radius = 24;
+  const stroke = 3;
   const circumference = 2 * Math.PI * radius;
-  const progress = time / 60;
-  const dashOffset = circumference * (1 - progress);
+  const progress = Math.max(0, time / 60);
+  const strokeDashoffset = circumference * (1 - progress);
 
   return (
-    <div className="arena-timer-ring" data-urgent={urgent ? "true" : undefined}>
-      <svg viewBox="0 0 100 100">
-        <defs>
-          <linearGradient id="sprint-timer-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={urgent ? "#ff4d6a" : "#f59e0b"} />
-            <stop offset="100%" stopColor={urgent ? "#ff8a3d" : "#00d4ff"} />
-          </linearGradient>
-        </defs>
-        <circle className="ring-bg" cx="50" cy="50" r={radius} />
+    <div className={`timer-ring ${urgent ? "urgent" : ""}`}>
+      <svg width={56} height={56}>
         <circle
-          className="ring-fg"
-          cx="50"
-          cy="50"
+          cx={28}
+          cy={28}
           r={radius}
+          fill="none"
+          stroke="var(--color-arena-line)"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={28}
+          cy={28}
+          r={radius}
+          fill="none"
+          stroke={urgent ? "var(--color-arena-bad)" : "var(--color-arena-accent)"}
+          strokeWidth={stroke}
           strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          style={{ stroke: `url(#sprint-timer-gradient)` }}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 1s linear" }}
         />
       </svg>
       <div className="timer-value">
@@ -61,9 +65,9 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
     sprintTimeLeft,
     setSprintTime,
     incrementSprintAttempts,
+    appendQuestions,
   } = useQuizStore();
 
-  const { user, openAuthModal } = useAuth();
   const [finished, setFinished] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -73,16 +77,54 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [sprintQuestions, setSprintQuestions] = useState<Question[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isPrefetchingRef = useRef(false);
 
-  // Initialize sprint with AI generated questions via Grok
+  // Background question pre-fetcher for continuous rapid-fire stream
+  const fetchMoreQuestions = useCallback(async (isUrgent = false) => {
+    if (isPrefetchingRef.current) return;
+    const currentState = useQuizStore.getState();
+    if (currentState.sprintTimeLeft <= 2) return;
+
+    isPrefetchingRef.current = true;
+    try {
+      const recentStems = currentState.questions.slice(-30).map((q) => q.question.slice(0, 45));
+      const res = await fetch("/api/quiz/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sport: sprintSport,
+          difficulty: sprintDifficulty,
+          count: 15,
+          mode: "sprint",
+          category:
+            sprintTournament !== "All Tournaments" &&
+            sprintTournament !== "All Events" &&
+            sprintTournament !== "All Grand Prix"
+              ? sprintTournament
+              : undefined,
+          excludeStems: recentStems,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+        appendQuestions(data.questions);
+        markQuestionsSeen(data.questions.map((q: Question) => q.question.slice(0, 45)));
+        if (isUrgent && useQuizStore.getState().locked) {
+          next();
+        }
+      }
+    } catch (err) {
+      console.warn("[Sprint] Background prefetch notice:", err);
+    } finally {
+      isPrefetchingRef.current = false;
+    }
+  }, [sprintSport, sprintDifficulty, sprintTournament, appendQuestions, next]);
+
+  // Initialize sprint with AI generated 25 questions via Grok
   const startSprint = useCallback(async () => {
     audio.unlock();
     audio.click();
-    if (!user) {
-      openAuthModal("signup", "/sprint");
-      return;
-    }
-
     setIsGenerating(true);
 
     try {
@@ -94,7 +136,12 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           sport: sprintSport,
           difficulty: sprintDifficulty,
           count: 25,
-          category: sprintTournament !== "All Tournaments" && sprintTournament !== "All Events" && sprintTournament !== "All Grand Prix" ? sprintTournament : undefined,
+          category:
+            sprintTournament !== "All Tournaments" &&
+            sprintTournament !== "All Events" &&
+            sprintTournament !== "All Grand Prix"
+              ? sprintTournament
+              : undefined,
           mode: "sprint",
           excludeStems: seenIds,
         }),
@@ -108,7 +155,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
         const newStems = pool.map((item) => item.question.slice(0, 45));
         markQuestionsSeen(newStems);
       } else {
-        // Resilient local fallback if network or provider rate limits
+        // Resilient fallback if provider rate limits
         pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25 });
       }
 
@@ -122,7 +169,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       setIsGenerating(false);
       setCountdown(3);
     }
-  }, [user, openAuthModal, sprintSport, sprintDifficulty, sprintTournament]);
+  }, [sprintSport, sprintDifficulty, sprintTournament]);
 
   // Countdown effect
   useEffect(() => {
@@ -140,7 +187,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
     return () => clearTimeout(timer);
   }, [countdown, start, sprintQuestions, sprintSport, sprintDifficulty]);
 
-  // Sprint countdown (60 seconds total)
+  // Sprint countdown (strictly 60 seconds total)
   useEffect(() => {
     if (!gameStarted || finished) return;
 
@@ -190,21 +237,27 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
         audio.wrong();
       }
 
-      // Auto-advance after brief delay in sprint mode
+      // Check if we are running low on questions and pre-fetch more in the background
+      const currentState = useQuizStore.getState();
+      if (currentState.questions.length - currentState.index <= 8 && currentState.sprintTimeLeft > 3) {
+        void fetchMoreQuestions(false);
+      }
+
+      // Rapid auto-advance (snappy 220ms transition for 60s sprint)
       setTimeout(() => {
-        if (useQuizStore.getState().sprintTimeLeft > 0) {
-          const state = useQuizStore.getState();
-          if (state.index < state.questions.length - 1) {
+        const latestState = useQuizStore.getState();
+        if (latestState.sprintTimeLeft > 0) {
+          if (latestState.index < latestState.questions.length - 1) {
             next();
           } else {
-            // Ran out of questions
-            setFinished(true);
-            audio.roundComplete();
+            // Reached the end of the current batch while time is still remaining!
+            // Fetch more immediately without ending the game!
+            void fetchMoreQuestions(true);
           }
         }
-      }, 600);
+      }, 220);
     },
-    [locked, finished, choose, sprintTimeLeft, next, incrementSprintAttempts]
+    [locked, finished, choose, sprintTimeLeft, next, incrementSprintAttempts, fetchMoreQuestions]
   );
 
   // Keyboard navigation for Sprint mode (1-4 / A-D for rapid-fire answers, Enter/Space to start)
@@ -280,8 +333,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
             <span className="arena-gradient-text">Score big.</span>
           </h1>
           <p className="text-arena-muted text-sm mb-6 max-w-md mx-auto leading-relaxed">
-            60 seconds on the clock. Continuous rapid-fire questions.
-            Wrong answers cost you nothing but time. Choose your sport & difficulty below!
+            60 seconds on the clock. Generates 25 questions initially with infinite stream replenishment if you answer fast!
           </p>
 
           {/* Sport Selector */}
@@ -371,7 +423,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
             {isGenerating ? (
               <>
                 <Loader2 size={20} className="animate-spin text-arena-accent" />
-                Synthesizing 60s Blitz Trivia via Grok AI...
+                Synthesizing 25 Blitz Questions via Grok AI...
               </>
             ) : (
               <>
@@ -441,6 +493,9 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           <div className="flex gap-2 items-center mb-3">
             <span className="arena-pill">{q.sport}</span>
             <span className="arena-pill">{q.difficulty}</span>
+            <span className="text-xs text-arena-muted ml-auto">
+              Question {index + 1}
+            </span>
           </div>
 
           <h2 className="font-display text-[clamp(20px,3.5vw,34px)] leading-[1.12] tracking-tight max-w-[920px] mb-5 font-bold">

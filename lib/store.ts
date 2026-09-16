@@ -60,6 +60,7 @@ interface GameState {
   reset: () => void;
   setSprintTime: (t: number) => void;
   incrementSprintAttempts: () => void;
+  appendQuestions: (newQuestions: Question[]) => void;
   setSessionId: (id: string) => void;
 }
 
@@ -171,6 +172,22 @@ export const useQuizStore = create<GameState>()(
 
   incrementSprintAttempts: () =>
     set((s) => ({ questionsAttempted: s.questionsAttempted + 1 })),
+
+  appendQuestions: (newQuestions) =>
+    set((s) => {
+      const existingIds = new Set(s.questions.map((q) => q.id));
+      const existingStems = new Set(
+        s.questions.map((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30))
+      );
+      const filtered = newQuestions.filter((q) => {
+        const stem = q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
+        return !existingIds.has(q.id) && !existingStems.has(stem);
+      });
+      return {
+        questions: [...s.questions, ...filtered],
+        roundCount: s.questions.length + filtered.length,
+      };
+    }),
 
   setSessionId: (id: string) => set({ sessionId: id }),
     }),
