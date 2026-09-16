@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
@@ -21,26 +22,60 @@ import {
   AlertTriangle,
   X,
   Loader2,
+  KeyRound,
+  CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuizStore } from "@/lib/store";
-import { SPORT_LIST, DIFFICULTY_LIST, type Question, type Sport, type Difficulty } from "@/data/questions";
+import {
+  SPORT_LIST,
+  DIFFICULTY_LIST,
+  TOURNAMENTS_BY_SPORT,
+  type Question,
+  type Sport,
+  type Difficulty,
+} from "@/data/questions";
 import QuizGame from "@/components/QuizGame";
 import { audio } from "@/lib/audio";
 import { validateQuestions, parseCSV } from "@/lib/validation";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/components/AuthContext";
 
-type BuilderTab = "ai" | "manual" | "file";
+type BuilderTab = "play_code" | "ai" | "manual" | "file";
 
-export default function ChallengePage() {
+function ChallengeContent() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
 
   // Builder State
-  const [activeTab, setActiveTab] = useState<BuilderTab>("ai");
+  const [activeTab, setActiveTab] = useState<BuilderTab>("play_code");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [started, setStarted] = useState(false);
   const [challengeTitle, setChallengeTitle] = useState("Ultimate Sports Challenge");
+  const [challengeCode, setChallengeCode] = useState("");
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Play By Code State
+  const [inputCode, setInputCode] = useState("");
+  const [isLoadingChallenge, setIsLoadingChallenge] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadedChallenge, setLoadedChallenge] = useState<{
+    id: string;
+    code: string;
+    title: string;
+    creator_name: string;
+    sport: string;
+    difficulty: string;
+    question_count: number;
+    play_count?: number;
+  } | null>(null);
+  const [loadedQuestions, setLoadedQuestions] = useState<Question[]>([]);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Tournament dropdown state
+  const [selectedTournament, setSelectedTournament] = useState("All");
 
   // AI Generation State
   const [aiSport, setAiSport] = useState<Sport>("Cricket");
@@ -66,10 +101,69 @@ export default function ChallengePage() {
   const [fileFormat, setFileFormat] = useState<"json" | "csv">("json");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Share Modal State
-  const [challengeCode, setChallengeCode] = useState("");
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  // ── 0. Load & Play Challenge by Code ────────────────────────
+  const loadChallenge = async (codeToLoad: string) => {
+    const code = codeToLoad.trim().toUpperCase();
+    if (!code) return;
+    setIsLoadingChallenge(true);
+    setLoadError(null);
+    audio.click();
+
+    try {
+      const res = await fetch(`/api/challenge/${code}`);
+      const data = await res.json();
+
+      if (!res.ok || !data.challenge) {
+        throw new Error(data.error || "Challenge not found. Please verify the code.");
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const qList: Question[] = (data.questions || []).map((q: any, i: number) => ({
+        id: q.id || `chal-q-${i}`,
+        sport: q.sport || data.challenge.sport || "All Sports",
+        difficulty: q.difficulty || data.challenge.difficulty || "Mixed",
+        year: q.year || 2024,
+        question: q.question_text || q.question,
+        options: Array.isArray(q.options)
+          ? (q.options as [string, string, string, string])
+          : [q.option_a, q.option_b, q.option_c, q.option_d],
+        answer: typeof q.correct_option === "number" ? q.correct_option : (typeof q.answer === "number" ? q.answer : 0),
+        explanation: q.explanation || "",
+      }));
+
+      setLoadedChallenge(data.challenge);
+      setLoadedQuestions(qList);
+      audio.correct();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load challenge");
+      audio.wrong();
+    } finally {
+      setIsLoadingChallenge(false);
+    }
+  };
+
+  const playLoadedChallenge = () => {
+    if (!loadedChallenge || loadedQuestions.length === 0) return;
+    audio.unlock();
+    useQuizStore.getState().start(loadedQuestions, {
+      sport: (loadedChallenge.sport as Sport) || "All Sports",
+      difficulty: (loadedChallenge.difficulty as Difficulty) || "Mixed",
+      mode: "challenge",
+      sessionId: loadedChallenge.id,
+    });
+    trackEvent("game_started", { mode: "challenge", code: loadedChallenge.code, count: loadedQuestions.length });
+    setStarted(true);
+  };
+
+  // Auto-load if code is in URL parameters (?code=XYZ123)
+  useEffect(() => {
+    const queryCode = searchParams.get("code");
+    if (queryCode) {
+      setInputCode(queryCode.toUpperCase());
+      setActiveTab("play_code");
+      loadChallenge(queryCode.toUpperCase());
+    }
+  }, [searchParams]);
 
   // ── 1. AI Single Question Generation ────────────────────────
   const generateOneWithAI = async () => {
@@ -382,26 +476,112 @@ export default function ChallengePage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Question Creator Workspace */}
         <div className="lg:col-span-7 flex flex-col gap-4">
-          <div className="arena-card p-2 flex gap-2">
+          <div className="arena-card p-2 flex gap-1.5 flex-wrap">
             <button
-              className={`arena-btn text-xs flex-1 justify-center ${activeTab === "ai" ? "arena-btn-primary" : "arena-btn-ghost"}`}
+              className={`arena-btn text-xs flex-1 min-w-[120px] justify-center ${activeTab === "play_code" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
+              onClick={() => { setActiveTab("play_code"); audio.click(); }}
+            >
+              <KeyRound size={14} /> Play Code
+            </button>
+            <button
+              className={`arena-btn text-xs flex-1 min-w-[120px] justify-center ${activeTab === "ai" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("ai"); audio.click(); }}
             >
               <Sparkles size={14} /> AI Generator
             </button>
             <button
-              className={`arena-btn text-xs flex-1 justify-center ${activeTab === "manual" ? "arena-btn-primary" : "arena-btn-ghost"}`}
+              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "manual" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("manual"); audio.click(); }}
             >
               <Plus size={14} /> Manual Entry
             </button>
             <button
-              className={`arena-btn text-xs flex-1 justify-center ${activeTab === "file" ? "arena-btn-primary" : "arena-btn-ghost"}`}
+              className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "file" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("file"); audio.click(); }}
             >
-              <Upload size={14} /> File Import/Export
+              <Upload size={14} /> File Import
             </button>
           </div>
+
+          {/* TAB 0: Play by Challenge Code */}
+          {activeTab === "play_code" && (
+            <motion.div
+              className="arena-card space-y-4"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="arena-eyebrow">Play a Challenge</div>
+              <h3 className="font-display font-bold text-lg">Enter 6-Digit Challenge Code</h3>
+              <p className="text-xs text-arena-muted leading-relaxed">
+                Enter a code shared by a creator to load their custom questions and test your skills.
+              </p>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={inputCode}
+                  onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. ABC123"
+                  maxLength={8}
+                  className="arena-input font-display text-xl tracking-[0.2em] uppercase text-center flex-1"
+                />
+                <button
+                  onClick={() => loadChallenge(inputCode)}
+                  disabled={isLoadingChallenge || inputCode.trim().length < 4}
+                  className="arena-btn arena-btn-primary px-6"
+                >
+                  {isLoadingChallenge ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                  Load
+                </button>
+              </div>
+
+              {loadError && (
+                <div className="p-3 rounded-xl bg-arena-bad/10 border border-arena-bad/30 text-arena-bad text-xs">
+                  {loadError}
+                </div>
+              )}
+
+              {loadedChallenge && (
+                <motion.div
+                  className="p-5 rounded-2xl bg-white/[.03] border border-arena-accent/40 space-y-4 mt-4"
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-xs text-arena-muted">Challenge Ready</div>
+                      <h4 className="font-display text-xl font-bold text-arena-text mt-0.5">{loadedChallenge.title}</h4>
+                      <p className="text-xs text-arena-muted mt-1">
+                        Created by <span className="text-arena-accent font-semibold">{loadedChallenge.creator_name}</span>
+                      </p>
+                    </div>
+                    <div className="font-display text-2xl font-bold arena-gradient-text tracking-widest">
+                      {loadedChallenge.code}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap text-xs">
+                    <span className="arena-pill px-2.5 py-1">{loadedChallenge.sport}</span>
+                    <span className="arena-pill px-2.5 py-1">{loadedChallenge.difficulty}</span>
+                    <span className="arena-pill px-2.5 py-1 text-arena-accent font-semibold">
+                      {loadedQuestions.length} Questions
+                    </span>
+                    <span className="arena-pill px-2.5 py-1">
+                      {loadedChallenge.play_count || 0} Total Plays
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={playLoadedChallenge}
+                    className="arena-btn arena-btn-primary w-full justify-center py-3 text-sm shadow-[0_0_20px_rgba(0,212,255,0.3)]"
+                  >
+                    <Play size={16} fill="currentColor" />
+                    Start This Challenge Now
+                  </button>
+                </motion.div>
+              )}
+            </motion.div>
+          )}
 
           {/* TAB 1: AI Generator */}
           {activeTab === "ai" && (
@@ -418,7 +598,12 @@ export default function ChallengePage() {
                   <label className="block text-xs font-semibold text-arena-muted mb-1">Sport</label>
                   <select
                     value={aiSport}
-                    onChange={(e) => setAiSport(e.target.value as Sport)}
+                    onChange={(e) => {
+                      const newSport = e.target.value as Sport;
+                      setAiSport(newSport);
+                      setSelectedTournament("All");
+                      setAiCategory("");
+                    }}
                     className="arena-input text-sm"
                   >
                     {SPORT_LIST.map((s) => (
@@ -443,17 +628,41 @@ export default function ChallengePage() {
                 </div>
               </div>
 
+              {/* Tournament Selector Dropdown with Custom option */}
               <div>
                 <label className="block text-xs font-semibold text-arena-muted mb-1">
-                  Specific Topic or Tournament (Optional)
+                  Tournament / Competition (Dropdown or Custom)
                 </label>
-                <input
-                  type="text"
-                  value={aiCategory}
-                  onChange={(e) => setAiCategory(e.target.value)}
-                  placeholder="e.g. 2011 Cricket World Cup, Wimbledon Champions, El Clásico"
-                  className="arena-input text-sm"
-                />
+                <select
+                  className="arena-input text-sm mb-2"
+                  value={selectedTournament}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedTournament(val);
+                    if (val === "All") {
+                      setAiCategory("");
+                    } else if (val !== "Custom") {
+                      setAiCategory(val);
+                    }
+                  }}
+                >
+                  <option value="All" className="bg-arena-panel">All / Any Tournament ({aiSport})</option>
+                  {(TOURNAMENTS_BY_SPORT[aiSport] || []).map((t) => (
+                    <option key={t} value={t} className="bg-arena-panel">{t}</option>
+                  ))}
+                  <option value="Custom" className="bg-arena-panel">✏️ Enter Custom Tournament / Topic...</option>
+                </select>
+
+                {selectedTournament === "Custom" && (
+                  <input
+                    type="text"
+                    value={aiCategory}
+                    onChange={(e) => setAiCategory(e.target.value)}
+                    placeholder="e.g. 2011 Cricket World Cup, Wimbledon 2023, El Clásico"
+                    className="arena-input text-sm"
+                    autoFocus
+                  />
+                )}
               </div>
 
               <div className="pt-2">
@@ -885,29 +1094,45 @@ export default function ChallengePage() {
               <div className="arena-eyebrow justify-center">Challenge Saved</div>
               <h3 className="font-display text-2xl font-bold">Your Challenge Code</h3>
 
-              <div className="py-4">
+              <div className="py-2">
                 <div className="font-display text-5xl font-bold tracking-[0.16em] arena-gradient-text">
                   {challengeCode}
                 </div>
               </div>
 
-              <p className="text-xs text-arena-muted">
-                Anyone can enter this code in the Multiplayer or Challenge section to take your custom quiz deck.
+              <p className="text-xs text-arena-muted leading-relaxed">
+                Send this code or share the direct link with friends. They can enter it in the Challenge tab or click the link to play immediately!
               </p>
 
-              <div className="flex gap-2 justify-center pt-2">
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(challengeCode);
-                    audio.click();
-                  }}
-                  className="arena-btn arena-btn-primary text-xs"
-                >
-                  <Copy size={14} /> Copy Code
-                </button>
+              <div className="flex flex-col gap-2 pt-2">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(challengeCode);
+                      audio.click();
+                    }}
+                    className="arena-btn arena-btn-ghost text-xs flex-1 justify-center"
+                  >
+                    <Copy size={14} /> Copy Code
+                  </button>
+                  <button
+                    onClick={() => {
+                      const origin = typeof window !== "undefined" ? window.location.origin : "";
+                      const directUrl = `${origin}/challenge?code=${challengeCode}`;
+                      navigator.clipboard?.writeText(directUrl);
+                      audio.click();
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2500);
+                    }}
+                    className="arena-btn arena-btn-primary text-xs flex-1 justify-center"
+                  >
+                    {copiedLink ? <CheckCircle2 size={14} className="text-arena-good" /> : <Share2 size={14} />}
+                    {copiedLink ? "Link Copied!" : "Copy Direct Play Link"}
+                  </button>
+                </div>
                 <button
                   onClick={() => setShowShareModal(false)}
-                  className="arena-btn arena-btn-ghost text-xs"
+                  className="arena-btn arena-btn-ghost text-xs w-full justify-center"
                 >
                   Close
                 </button>
@@ -917,5 +1142,13 @@ export default function ChallengePage() {
         )}
       </AnimatePresence>
     </main>
+  );
+}
+
+export default function ChallengePage() {
+  return (
+    <Suspense fallback={<div className="arena-container py-24 text-center text-arena-muted">Loading Challenge Studio...</div>}>
+      <ChallengeContent />
+    </Suspense>
   );
 }

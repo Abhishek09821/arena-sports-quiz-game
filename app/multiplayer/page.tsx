@@ -13,12 +13,14 @@ import {
   AlertCircle,
   Check,
   X,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { audio } from "@/lib/audio";
 import { buildGame } from "@/lib/quiz";
-import { type Question } from "@/data/questions";
+import { SPORT_LIST, DIFFICULTY_LIST, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
 
 type RoomStatus = "idle" | "lobby" | "ready" | "playing" | "finished";
@@ -45,6 +47,15 @@ export default function MultiplayerPage() {
   const [events, setEvents] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
 
+  // New customization state for 1v1 Arena
+  const [selectedSport, setSelectedSport] = useState<Sport | "All Sports">("All Sports");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | "Mixed">("Mixed");
+  const [selectedCount, setSelectedCount] = useState<number>(10);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [roomSettings, setRoomSettings] = useState<{ sport: string; difficulty: string; hostName: string } | null>(null);
+
   const myIdRef = useRef(Math.random().toString(36).slice(2, 10));
   const channelRef = useRef<ReturnType<typeof supabase extends null ? never : NonNullable<typeof supabase>["channel"]> | null>(null);
 
@@ -52,31 +63,92 @@ export default function MultiplayerPage() {
     setEvents((prev) => [msg, ...prev].slice(0, 8));
   }, []);
 
-  // Create room
-  const createRoom = useCallback(() => {
+  // Create room with difficulty and sport stored in Supabase
+  const createRoom = useCallback(async () => {
+    setIsCreating(true);
     const code = generateRoomCode();
     setRoomCode(code);
     setCodeInput(code);
-    setStatus("lobby");
 
-    // Generate questions for this room
-    const qs = buildGame({ sport: "All Sports", difficulty: "Mixed", count: 10 });
+    // Generate questions for this room with the chosen sport and difficulty
+    const qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
     setQuestions(qs);
+    setRoomSettings({
+      sport: selectedSport,
+      difficulty: selectedDifficulty,
+      hostName: name || "Host",
+    });
 
-    addEvent("Room created. Share the code.");
-    trackEvent("room_created", { code });
-    audio.select();
-  }, [addEvent]);
+    try {
+      // Persist to Supabase game_rooms and game_players
+      await fetch("/api/multiplayer/room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          hostName: name || "Host",
+          sport: selectedSport,
+          difficulty: selectedDifficulty,
+          count: selectedCount,
+          questions: qs,
+          playerToken: myIdRef.current,
+        }),
+      });
+    } catch (err) {
+      console.warn("[Multiplayer] Supabase room persist notice:", err);
+    } finally {
+      setIsCreating(false);
+      setStatus("lobby");
+      addEvent(`Room created (${selectedDifficulty} • ${selectedSport}). Share the code.`);
+      trackEvent("room_created", { code, sport: selectedSport, difficulty: selectedDifficulty });
+      audio.select();
+    }
+  }, [name, selectedSport, selectedDifficulty, selectedCount, addEvent]);
 
-  // Join room
-  const joinRoom = useCallback(() => {
-    if (!codeInput.trim()) return;
-    setRoomCode(codeInput.toUpperCase());
-    setStatus("lobby");
+  // Join room and load settings from Supabase
+  const joinRoom = useCallback(async () => {
+    const code = codeInput.trim().toUpperCase();
+    if (!code) return;
+    setIsJoining(true);
+    setJoinError(null);
+    setRoomCode(code);
     addEvent("Joining room...");
-    trackEvent("room_joined", { code: codeInput });
     audio.select();
-  }, [codeInput, addEvent]);
+
+    try {
+      // 1. Fetch room from Supabase
+      const res = await fetch(`/api/multiplayer/room?code=${code}`);
+      const data = await res.json();
+
+      if (res.ok && data.success && data.questions?.length) {
+        setQuestions(data.questions);
+        setRoomSettings({
+          hostName: data.hostName || "Host",
+          sport: data.sport || "All Sports",
+          difficulty: data.difficulty || "Mixed",
+        });
+
+        // 2. Register this player in Supabase
+        await fetch("/api/multiplayer/player", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomCode: code,
+            playerName: name || "Player 2",
+            playerToken: myIdRef.current,
+          }),
+        });
+      } else if (!res.ok) {
+        setJoinError(data.error || "Room not found. Check the code.");
+      }
+    } catch (err) {
+      console.warn("[Multiplayer] Supabase load error, falling back to Realtime sync:", err);
+    } finally {
+      setIsJoining(false);
+      setStatus("lobby");
+      trackEvent("room_joined", { code });
+    }
+  }, [codeInput, name, addEvent]);
 
   // Connect to Supabase Realtime channel
   useEffect(() => {
@@ -154,9 +226,22 @@ export default function MultiplayerPage() {
           setShowAnswer(false);
           setCurrentQ((prev) => {
             const nextQ = prev + 1;
-            if (nextQ >= 10) {
+            const total = questions.length || 10;
+            if (nextQ >= total) {
               setStatus("finished");
               audio.roundComplete();
+
+              // Sync score to Supabase
+              fetch("/api/multiplayer/player", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  roomCode,
+                  playerToken: myIdRef.current,
+                  score: myScore,
+                  status: "finished",
+                }),
+              }).catch(() => {});
             }
             return nextQ;
           });
@@ -195,7 +280,7 @@ export default function MultiplayerPage() {
       channelRef.current = null;
       setConnected(false);
     };
-  }, [roomCode, status, name, addEvent]);
+  }, [roomCode, status, name, addEvent, questions.length, myScore]);
 
   const sendReady = () => {
     channelRef.current?.send({
@@ -216,6 +301,12 @@ export default function MultiplayerPage() {
       event: "game_start",
       payload: { questions },
     });
+    // Mark room live in Supabase
+    fetch("/api/multiplayer/player", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomCode, status: "live" }),
+    }).catch(() => {});
   };
 
   const buzz = () => {
@@ -284,73 +375,179 @@ export default function MultiplayerPage() {
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-4xl">
           {/* Create */}
           <motion.div
-            className="arena-card arena-card-shine"
+            className="lg:col-span-7 arena-card arena-card-shine space-y-4"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05, duration: 0.4 }}
           >
-            <div className="arena-eyebrow">Create</div>
-            <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
-              Start a new room
-            </h3>
-            <label className="block mb-3">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-2">
-                Display Name
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="arena-eyebrow">Host 1v1 Match</div>
+                <h3 className="font-display font-bold tracking-tight text-lg mt-0.5">
+                  Configure Your Arena
+                </h3>
+              </div>
+              <span className="arena-pill px-2.5 py-1 text-[11px] text-arena-accent font-semibold">
+                Saved to Supabase
+              </span>
+            </div>
+
+            <label className="block">
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+                Your Display Name
               </span>
               <input
                 className="arena-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={20}
+                placeholder="Enter your name"
               />
             </label>
+
+            {/* Sport Selection */}
+            <div>
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+                Sport
+              </span>
+              <select
+                className="arena-input text-sm"
+                value={selectedSport}
+                onChange={(e) => setSelectedSport(e.target.value as Sport | "All Sports")}
+              >
+                <option value="All Sports" className="bg-arena-panel">All Sports (Mixed Multi-Sport)</option>
+                {SPORT_LIST.map((s) => (
+                  <option key={s} value={s} className="bg-arena-panel">
+                    {s === "Football" ? "Football (Soccer)" : s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Difficulty Selection */}
+            <div>
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+                Difficulty Level
+              </span>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {(["Easy", "Medium", "Hard", "Legendary", "Mixed"] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => { setSelectedDifficulty(d); audio.click(); }}
+                    className={`py-2 px-1 text-xs rounded-xl font-bold transition-all border text-center ${
+                      selectedDifficulty === d
+                        ? "bg-arena-accent/20 border-arena-accent text-arena-accent shadow-[0_0_15px_rgba(0,212,255,0.25)]"
+                        : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text hover:border-white/20"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Questions count */}
+            <div>
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+                Rounds (Questions)
+              </span>
+              <div className="flex gap-2">
+                {[5, 10, 15].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => { setSelectedCount(c); audio.click(); }}
+                    className={`flex-1 py-1.5 text-xs rounded-lg font-bold border transition-all ${
+                      selectedCount === c
+                        ? "bg-white/[.08] border-arena-accent text-arena-text"
+                        : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text"
+                    }`}
+                  >
+                    {c} Questions
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <motion.button
-              className="arena-btn arena-btn-primary w-full justify-center"
+              className="arena-btn arena-btn-primary w-full justify-center py-3"
               onClick={createRoom}
-              disabled={!supabase}
+              disabled={!supabase || isCreating}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
-              <Swords size={17} />
-              Create Room
+              {isCreating ? (
+                <>
+                  <Loader2 size={17} className="animate-spin" />
+                  Generating Questions & Creating Room...
+                </>
+              ) : (
+                <>
+                  <Swords size={17} />
+                  Create 1v1 Room
+                </>
+              )}
             </motion.button>
           </motion.div>
 
           {/* Join */}
           <motion.div
-            className="arena-card arena-card-shine"
+            className="lg:col-span-5 arena-card arena-card-shine space-y-4 flex flex-col justify-between"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.4 }}
           >
-            <div className="arena-eyebrow">Join</div>
-            <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
-              Enter a room code
-            </h3>
-            <label className="block mb-3">
-              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-2">
-                Room Code
-              </span>
-              <input
-                className="arena-input font-display text-xl tracking-[0.2em] text-center uppercase"
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
-                placeholder="ABC123"
-                maxLength={8}
-              />
-            </label>
+            <div className="space-y-4">
+              <div className="arena-eyebrow">Join Existing Room</div>
+              <h3 className="font-display font-bold tracking-tight text-lg mt-0.5">
+                Enter Room Code
+              </h3>
+              <p className="text-xs text-arena-muted leading-relaxed">
+                Got an invite code from a friend? Paste it below to join their custom match settings.
+              </p>
+
+              <label className="block">
+                <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">
+                  6-Digit Code
+                </span>
+                <input
+                  className="arena-input font-display text-2xl tracking-[0.2em] text-center uppercase"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                  placeholder="ABC123"
+                  maxLength={8}
+                />
+              </label>
+
+              {joinError && (
+                <div className="p-2.5 rounded-lg bg-arena-bad/10 border border-arena-bad/30 text-arena-bad text-xs">
+                  {joinError}
+                </div>
+              )}
+            </div>
+
             <motion.button
-              className="arena-btn arena-btn-ghost w-full justify-center"
+              className="arena-btn arena-btn-ghost w-full justify-center py-3"
               onClick={joinRoom}
-              disabled={!supabase || codeInput.length < 4}
+              disabled={!supabase || codeInput.length < 4 || isJoining}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
-              <Users size={17} />
-              Join Room
+              {isJoining ? (
+                <>
+                  <Loader2 size={17} className="animate-spin" />
+                  Loading Room...
+                </>
+              ) : (
+                <>
+                  <Users size={17} />
+                  Join Room
+                </>
+              )}
             </motion.button>
           </motion.div>
         </div>
@@ -410,6 +607,14 @@ export default function MultiplayerPage() {
                 Copy Code
               </motion.button>
             </div>
+
+            {roomSettings && (
+              <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+                <span className="arena-pill px-2.5 py-1 text-xs">{roomSettings.sport}</span>
+                <span className="arena-pill px-2.5 py-1 text-xs text-arena-accent font-bold">{roomSettings.difficulty}</span>
+                <span className="arena-pill px-2.5 py-1 text-xs">{questions.length} Questions</span>
+              </div>
+            )}
 
             <div className="mt-6 border-t border-arena-line pt-5">
               <div className="flex items-center justify-center gap-2 mb-4">

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, useInView } from "motion/react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowRight,
   Zap,
@@ -15,6 +16,7 @@ import {
   HelpCircle,
   ChevronDown,
   ArrowUpRight,
+  KeyRound,
 } from "lucide-react";
 import { SPORT_LIST, SPORT_META } from "@/data/questions";
 import { audio } from "@/lib/audio";
@@ -76,7 +78,9 @@ function AnimatedSection({ children, className, delay = 0 }: { children: React.R
 }
 
 export default function Home() {
+  const router = useRouter();
   const { user, requireAuth } = useAuth();
+  const [homeCode, setHomeCode] = useState("");
   const sportsRef = useRef<HTMLDivElement>(null);
   const sportsInView = useInView(sportsRef, { once: true, margin: "-60px" });
 
@@ -294,6 +298,48 @@ export default function Home() {
             );
           })}
         </div>
+      </section>
+
+      {/* ── Quick Challenge Code Play ──────────────────────── */}
+      <section className="arena-container py-6">
+        <AnimatedSection>
+          <div className="arena-card p-5 border border-arena-accent/30 bg-gradient-to-r from-arena-accent/10 via-white/[.02] to-purple-500/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-arena-accent/20 text-arena-accent grid place-items-center flex-shrink-0 shadow-[0_0_15px_rgba(0,212,255,0.25)]">
+                <KeyRound size={22} />
+              </div>
+              <div>
+                <h4 className="font-display font-bold text-lg">Have a Challenge Code?</h4>
+                <p className="text-xs text-arena-muted">Paste a 6-digit code shared by a friend to jump straight into their custom trivia deck.</p>
+              </div>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (homeCode.trim()) {
+                  router.push(`/challenge?code=${homeCode.trim().toUpperCase()}`);
+                }
+              }}
+              className="flex items-center gap-2 w-full sm:w-auto"
+            >
+              <input
+                type="text"
+                placeholder="CODE (e.g. ABC123)"
+                value={homeCode}
+                onChange={(e) => setHomeCode(e.target.value.toUpperCase())}
+                className="arena-input font-display text-sm tracking-widest text-center uppercase py-2.5 px-3 w-full sm:w-44"
+                maxLength={8}
+              />
+              <button
+                type="submit"
+                disabled={!homeCode.trim()}
+                className="arena-btn arena-btn-primary text-xs whitespace-nowrap py-3 px-5"
+              >
+                Play <ArrowRight size={13} />
+              </button>
+            </form>
+          </div>
+        </AnimatedSection>
       </section>
 
       {/* ── Gradient Divider ─────────────────────────────────── */}

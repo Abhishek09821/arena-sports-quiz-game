@@ -25,12 +25,35 @@ STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American 
 STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American football, the NFL, the Super Bowl, quarterbacks, touchdowns, field goals, gridiron, or American college football. In this platform, 'Football' means FIFA Association Football / Soccer ONLY! Any question about NFL or American football is invalid and will be rejected.`
       : `All ${count} questions MUST be about the sport: ${sport}.`;
 
-  const diffInstruction =
-    difficulty === "Mixed"
-      ? `Provide a balanced mix of Easy, Medium, and Hard questions.`
-      : `All questions MUST have difficulty '${difficulty}'.`;
+  let diffInstruction = "";
+  if (difficulty === "Easy") {
+    diffInstruction = `DIFFICULTY: EASY (Headline Mainstream Knowledge)
+- Target audience: Casual sports fans. Questions MUST test well-known global champions, famous record holders, iconic milestones, and prominent stars (e.g., Messi winning 2022 World Cup with Argentina, Usain Bolt 100m world record, Michael Jordan with Chicago Bulls, Real Madrid record UCLs).
+- STRICT NEGATIVE CONSTRAINT: DO NOT ask obscure statistics, bench players, minor tournament editions, or deep-cut technical facts. Keep questions approachable and recognizable.`;
+  } else if (difficulty === "Medium") {
+    diffInstruction = `DIFFICULTY: MEDIUM (Regular Sports Fan Knowledge)
+- Target audience: Active sports followers. Questions should test tournament runners-up, Golden Boot / MVP winners, iconic championship scorelines, historic club transfers, famous rivalries, and milestone seasons from major leagues and tournaments.
+- Balance: Questions should require active interest in the sport, but remain notable and verified.`;
+  } else if (difficulty === "Hard") {
+    diffInstruction = `DIFFICULTY: HARD (Dedicated Sports Enthusiast)
+- Target audience: Die-hard sports followers and season-ticket fans. Questions should test specific tournament years, exact final scorelines, lesser-known champions, tournament host cities, decisive extra-time or penalty shootout moments, and head-to-head records.
+- STRICT NEGATIVE CONSTRAINT: Do NOT ask elementary or trivial questions (e.g. "Who won the 2022 World Cup?" or "How many rings does LeBron James have?").`;
+  } else if (difficulty === "Legendary") {
+    diffInstruction = `DIFFICULTY: LEGENDARY / EXPERT (Sports Historians & Trivia Savants)
+- Target audience: Elite sports trivia masters, archivists, and sports historians. Questions MUST test deep-cut records, rare statistical anomalies, specific player substitutions in historic finals, venue trivia, pre-2000 historical achievements, debut opponents, kit numbers, or obscure tournament regulations.
+- STRICT NEGATIVE CONSTRAINT: ABSOLUTELY FORBIDDEN to generate common-knowledge, widely known, or famous trivia! Any question that an average casual fan knows (like champions of recent World Cups, Messi/Ronaldo generic records, etc.) is STRICTLY INVALID. Every Legendary question must demand genuine deep expertise.`;
+  } else {
+    diffInstruction = `DIFFICULTY: MIXED
+- Provide a diverse, balanced mix of questions spanning Easy, Medium, and Hard difficulty levels. Label each question's difficulty field accurately according to its actual depth.`;
+  }
 
-  const categoryInstruction = category ? `Focus specifically on the topic/category: "${category}".` : "";
+  const categoryInstruction = category
+    ? `STRICT TOURNAMENT ENFORCEMENT:
+Every question MUST strictly and exclusively test the tournament or topic: "${category}".
+All questions, correct answers, and plausible distractors MUST directly reference matches, champions, finals, iconic players, award winners, goals/wickets, or historic records from "${category}".
+DO NOT generate generic questions or questions from unrelated competitions.
+Set the "category" property of every question to "${category}".`
+    : "";
 
   const excludeSection =
     (excludeStems && excludeStems.length > 0) || (excludeAnswers && excludeAnswers.length > 0)
@@ -41,9 +64,11 @@ STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American 
 Generate exactly ${count} unique, high-quality sports trivia questions based on the following specifications:
 
 - Sport: ${sport === "Football" ? "Football (Association Football / FIFA Soccer - NOT American Football/NFL)" : sport}
-- Difficulty: ${difficulty}
+- Target Difficulty: ${difficulty}
 ${sportInstruction}
+
 ${diffInstruction}
+
 ${categoryInstruction}
 ${excludeSection}
 
@@ -197,70 +222,70 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
   const targetDiff = options.difficulty;
   const count = options.count;
 
-  // Curated sports trivia facts matrix
+  // Curated sports trivia facts matrix with balanced difficulties
   const factsBank: Record<Sport, Array<{ q: string; opts: [string, string, string, string]; a: string; exp: string; diff: Difficulty; yr: number }>> = {
     Cricket: [
       { q: "Who scored the fastest century in Men's One Day International cricket (in 31 balls)?", opts: ["AB de Villiers", "Corey Anderson", "Shahid Afridi", "Chris Gayle"], a: "AB de Villiers", exp: "AB de Villiers struck a 31-ball century against the West Indies in Johannesburg in 2015.", diff: "Easy", yr: 2015 },
-      { q: "Which bowler took 10 wickets in a single Test innings against England at Old Trafford in 1956?", opts: ["Jim Laker", "Anil Kumble", "Ajaz Patel", "Shane Warne"], a: "Jim Laker", exp: "Jim Laker took 10 for 53 in the second innings (and 19 wickets in the match).", diff: "Hard", yr: 1956 },
       { q: "Who captained India to victory in the inaugural 2007 ICC World Twenty20?", opts: ["MS Dhoni", "Rahul Dravid", "Sourav Ganguly", "Yuvraj Singh"], a: "MS Dhoni", exp: "MS Dhoni led a young Indian team to defeat Pakistan in the Johannesburg final.", diff: "Easy", yr: 2007 },
-      { q: "Which team won the 2019 ICC Men's Cricket World Cup by boundary countback?", opts: ["England", "New Zealand", "Australia", "India"], a: "England", exp: "England and New Zealand tied both the match and Super Over at Lord's.", diff: "Medium", yr: 2019 },
       { q: "Who holds the record for highest individual score in Test match cricket with 400 not out?", opts: ["Brian Lara", "Matthew Hayden", "Don Bradman", "Virender Sehwag"], a: "Brian Lara", exp: "Brian Lara scored 400 not out against England at St John's, Antigua in 2004.", diff: "Easy", yr: 2004 },
+      { q: "Which team won the 2019 ICC Men's Cricket World Cup by boundary countback?", opts: ["England", "New Zealand", "Australia", "India"], a: "England", exp: "England and New Zealand tied both the match and Super Over at Lord's.", diff: "Medium", yr: 2019 },
       { q: "Which country hosted the first official Men's Cricket World Cup in 1975?", opts: ["England", "Australia", "West Indies", "South Africa"], a: "England", exp: "England hosted the inaugural Prudential World Cup in June 1975.", diff: "Medium", yr: 1975 },
-      { q: "Who was the first batter to hit 6 sixes in an over in an international T20 match?", opts: ["Yuvraj Singh", "Kieron Pollard", "Herschelle Gibbs", "Chris Gayle"], a: "Yuvraj Singh", exp: "Yuvraj Singh hit Stuart Broad for 6 sixes in Durban during the 2007 T20 World Cup.", diff: "Easy", yr: 2007 },
-      { q: "Which bowler has taken the most wickets in Men's Test cricket history?", opts: ["Muttiah Muralitharan", "Shane Warne", "James Anderson", "Anil Kumble"], a: "Muttiah Muralitharan", exp: "Muralitharan took 800 Test wickets in 133 matches.", diff: "Easy", yr: 2010 },
+      { q: "Who was the Man of the Match in the 1999 ICC Men's Cricket World Cup Final at Lord's?", opts: ["Shane Warne", "Glenn McGrath", "Adam Gilchrist", "Steve Waugh"], a: "Shane Warne", exp: "Shane Warne took 4 wickets for 33 runs as Australia bowled out Pakistan for 132.", diff: "Hard", yr: 1999 },
+      { q: "Which bowler took 10 wickets in a single Test innings against England at Old Trafford in 1956?", opts: ["Jim Laker", "Anil Kumble", "Ajaz Patel", "Shane Warne"], a: "Jim Laker", exp: "Jim Laker took 10 for 53 in the second innings and 19 wickets in the match.", diff: "Hard", yr: 1956 },
+      { q: "Who was the only bowler to take 4 wickets in 4 consecutive balls in a Men's Cricket World Cup match?", opts: ["Lasith Malinga", "Wasim Akram", "Chaminda Vaas", "Brett Lee"], a: "Lasith Malinga", exp: "Lasith Malinga took 4 in 4 against South Africa at Providence Stadium, Guyana in the 2007 World Cup.", diff: "Legendary", yr: 2007 },
+      { q: "Against which country and at which venue did Sachin Tendulkar score his 100th international hundred in 2012?", opts: ["Bangladesh at Mirpur", "Sri Lanka at Colombo", "England at The Oval", "Pakistan at Kolkata"], a: "Bangladesh at Mirpur", exp: "Tendulkar reached his historic century of centuries scoring 114 against Bangladesh at the Sher-e-Bangla Stadium in Mirpur.", diff: "Legendary", yr: 2012 },
     ],
     Football: [
       { q: "Which national team won the FIFA World Cup in 2022 in Qatar?", opts: ["Argentina", "France", "Croatia", "Brazil"], a: "Argentina", exp: "Argentina defeated France 4-2 on penalties following a thrilling 3-3 draw.", diff: "Easy", yr: 2022 },
       { q: "Who is the all-time leading goalscorer in UEFA Champions League history?", opts: ["Cristiano Ronaldo", "Lionel Messi", "Robert Lewandowski", "Karim Benzema"], a: "Cristiano Ronaldo", exp: "Cristiano Ronaldo has scored 140 goals in the UEFA Champions League.", diff: "Easy", yr: 2023 },
+      { q: "Which club went an entire 38-game Premier League season undefeated in 2003-04?", opts: ["Arsenal", "Manchester United", "Chelsea", "Liverpool"], a: "Arsenal", exp: "Arsène Wenger's Arsenal 'Invincibles' won 26 and drew 12 matches.", diff: "Easy", yr: 2004 },
       { q: "Which country won the UEFA European Championship in 2004 in a historic upset?", opts: ["Greece", "Portugal", "Czech Republic", "Netherlands"], a: "Greece", exp: "Greece defeated tournament hosts Portugal 1-0 in Lisbon.", diff: "Medium", yr: 2004 },
-      { q: "Who won the Ballon d'Or in 2018, breaking a decade of Messi-Ronaldo dominance?", opts: ["Luka Modrić", "Antoine Griezmann", "Kylian Mbappé", "Mohamed Salah"], a: "Luka Modrić", exp: "Luka Modrić won after leading Croatia to the World Cup final and winning the UCL.", diff: "Medium", yr: 2018 },
-      { q: "Which club went an entire 38-game Premier League season undefeated in 2003-04?", opts: ["Arsenal", "Manchester United", "Chelsea", "Liverpool"], a: "Arsenal", exp: "Arsene Wenger's Arsenal 'Invincibles' won 26 and drew 12 matches.", diff: "Easy", yr: 2004 },
-      { q: "Who scored the famous 'Hand of God' goal against England in the 1986 World Cup?", opts: ["Diego Maradona", "Pelé", "Mario Kempes", "Jorge Valdano"], a: "Diego Maradona", exp: "Diego Maradona scored with his hand in the quarter-final in Mexico City.", diff: "Easy", yr: 1986 },
-      { q: "Which player holds the record for most assists in a single Premier League season (20)?", opts: ["Thierry Henry & Kevin De Bruyne", "Cesc Fàbregas", "Mesut Özil", "Frank Lampard"], a: "Thierry Henry & Kevin De Bruyne", exp: "Thierry Henry (2002-03) and Kevin De Bruyne (2019-20) both registered 20 assists.", diff: "Hard", yr: 2020 },
-      { q: "Which goalkeeper won the Yashin Trophy at the 2023 Ballon d'Or awards?", opts: ["Emiliano Martínez", "Ederson", "Thibaut Courtois", "Yassine Bounou"], a: "Emiliano Martínez", exp: "Emiliano Martínez won the award following his pivotal World Cup campaign for Argentina.", diff: "Medium", yr: 2023 },
-      { q: "Who holds the record for the most Men's Ballon d'Or awards in football history (8)?", opts: ["Lionel Messi", "Cristiano Ronaldo", "Michel Platini", "Johan Cruyff"], a: "Lionel Messi", exp: "Lionel Messi won his record-extending eighth Ballon d'Or in 2023.", diff: "Easy", yr: 2023 },
-      { q: "Which club has won the most UEFA Champions League / European Cup titles?", opts: ["Real Madrid", "AC Milan", "Liverpool", "Bayern Munich"], a: "Real Madrid", exp: "Real Madrid has won 15 European Cup / Champions League titles.", diff: "Easy", yr: 2024 },
-      { q: "Who is the only player to have won three FIFA World Cup tournaments (1958, 1962, 1970)?", opts: ["Pelé", "Garrincha", "Cafu", "Ronaldo Nazário"], a: "Pelé", exp: "Pelé won three World Cups with Brazil, debuting as a 17-year-old in 1958.", diff: "Easy", yr: 1970 },
-      { q: "Which underdog club remarkably won the English Premier League title in 2015-16 at 5000-1 odds?", opts: ["Leicester City", "Blackburn Rovers", "West Ham United", "Southampton"], a: "Leicester City", exp: "Claudio Ranieri managed Leicester City to an extraordinary Premier League triumph.", diff: "Easy", yr: 2016 },
-      { q: "Which national team won three consecutive major international tournaments between 2008 and 2012?", opts: ["Spain", "France", "Germany", "Brazil"], a: "Spain", exp: "Spain won Euro 2008, the 2010 World Cup, and Euro 2012.", diff: "Medium", yr: 2012 },
-      { q: "Who scored the winning goal for Germany in extra time of the 2014 FIFA World Cup final?", opts: ["Mario Götze", "Thomas Müller", "Miroslav Klose", "Toni Kroos"], a: "Mario Götze", exp: "Mario Götze volleyed home in the 113th minute against Argentina in Rio de Janeiro.", diff: "Medium", yr: 2014 },
+      { q: "Who won the Ballon d'Or in 2018, breaking a decade of Messi-Ronaldo dominance?", opts: ["Luka Modrić", "Antoine Griezmann", "Kylian Mbappé", "Mohamed Salah"], a: "Luka Modrić", exp: "Luka Modrić won after leading Croatia to the World Cup final and winning the UCL with Real Madrid.", diff: "Medium", yr: 2018 },
+      { q: "Which referee officiated the 2010 FIFA World Cup Final between Spain and the Netherlands, issuing 14 yellow cards?", opts: ["Howard Webb", "Pierluigi Collina", "Nicola Rizzoli", "Mark Clattenburg"], a: "Howard Webb", exp: "English referee Howard Webb officiated the fiery 2010 final in Johannesburg.", diff: "Hard", yr: 2010 },
+      { q: "Who scored the winning golden goal for France against Italy in extra time of the UEFA Euro 2000 final?", opts: ["David Trezeguet", "Sylvain Wiltord", "Zinedine Zidane", "Thierry Henry"], a: "David Trezeguet", exp: "David Trezeguet struck a blistering half-volley in the 103rd minute in Rotterdam.", diff: "Hard", yr: 2000 },
+      { q: "Who is the only player to have scored a hat-trick in the Premier League, UEFA Champions League, and FA Cup in the same season (2009-10)?", opts: ["Yossi Benayoun", "Fernando Torres", "Didier Drogba", "Wayne Rooney"], a: "Yossi Benayoun", exp: "Israeli midfielder Yossi Benayoun achieved this rare treble of hat-tricks for Liverpool in 2009-10.", diff: "Legendary", yr: 2010 },
+      { q: "Who scored Cameroon's iconic winning header against defending champions Argentina in the opening match of the 1990 World Cup?", opts: ["François Omam-Biyik", "Roger Milla", "Cyrille Makanaky", "Stephen Tataw"], a: "François Omam-Biyik", exp: "François Omam-Biyik scored in the 67th minute at the San Siro in Milan as 9-man Cameroon shocked Argentina 1-0.", diff: "Legendary", yr: 1990 },
     ],
     Basketball: [
-      { q: "Which NBA player scored 100 points in a single game in March 1962?", opts: ["Wilt Chamberlain", "Bill Russell", "Kareem Abdul-Jabbar", "Elgin Baylor"], a: "Wilt Chamberlain", exp: "Wilt Chamberlain scored 100 points for the Philadelphia Warriors against the Knicks.", diff: "Easy", yr: 1962 },
+      { q: "Which NBA player scored 100 points in a single game in March 1962?", opts: ["Wilt Chamberlain", "Bill Russell", "Kareem Abdul-Jabbar", "Elgin Baylor"], a: "Wilt Chamberlain", exp: "Wilt Chamberlain scored 100 points for the Philadelphia Warriors against the Knicks in Hershey, Pennsylvania.", diff: "Easy", yr: 1962 },
       { q: "Who became the NBA's all-time leading regular season scorer in February 2023?", opts: ["LeBron James", "Kareem Abdul-Jabbar", "Karl Malone", "Kobe Bryant"], a: "LeBron James", exp: "LeBron James surpassed Kareem Abdul-Jabbar's 38,387 career points.", diff: "Easy", yr: 2023 },
-      { q: "Which franchise won 73 regular-season games during the 2015-16 NBA season?", opts: ["Golden State Warriors", "Chicago Bulls", "San Antonio Spurs", "Cleveland Cavaliers"], a: "Golden State Warriors", exp: "The Warriors finished 73-9, surpassing the 1995-96 Bulls' 72-10 mark.", diff: "Easy", yr: 2016 },
-      { q: "Who won the NBA Finals MVP unanimously in the 1971 NBA Finals?", opts: ["Kareem Abdul-Jabbar", "Oscar Robertson", "Jerry West", "Willis Reed"], a: "Kareem Abdul-Jabbar", exp: "Lew Alcindor (Kareem) led the Milwaukee Bucks to a 4-0 sweep.", diff: "Hard", yr: 1971 },
-      { q: "Which player recorded the first quadruple-double in NBA playoff history?", opts: ["None has been recorded", "Hakeem Olajuwon", "David Robinson", "Nate Thurmond"], a: "None has been recorded", exp: "Quadruple-doubles have only been officially recorded in regular season games.", diff: "Legendary", yr: 1994 },
-      { q: "Which country defeated the USA in men's basketball at the 2004 Athens Olympics semi-finals?", opts: ["Argentina", "Italy", "Lithuania", "Spain"], a: "Argentina", exp: "Manu Ginobili led Argentina to an 89-81 victory on their way to Olympic Gold.", diff: "Medium", yr: 2004 },
+      { q: "Which country defeated the USA men's basketball team in the semi-finals of the 2004 Athens Olympics?", opts: ["Argentina", "Lithuania", "Spain", "Italy"], a: "Argentina", exp: "Manu Ginobili led Argentina to an 89-81 victory over Team USA before claiming Olympic Gold.", diff: "Medium", yr: 2004 },
+      { q: "Which player scored 8 points in 9 seconds to lead the Indiana Pacers to an improbable playoff victory over the Knicks in 1995?", opts: ["Reggie Miller", "Rik Smits", "Mark Jackson", "Dale Davis"], a: "Reggie Miller", exp: "Reggie Miller hit two 3-pointers and two free throws in 8.9 seconds at Madison Square Garden.", diff: "Hard", yr: 1995 },
+      { q: "Who is the only player in NBA history to win the Finals MVP award despite playing for the losing team?", opts: ["Jerry West", "LeBron James", "Wilt Chamberlain", "Magic Johnson"], a: "Jerry West", exp: "Jerry West won the inaugural Finals MVP in 1969 despite the LA Lakers losing Game 7 to the Boston Celtics.", diff: "Legendary", yr: 1969 },
+      { q: "Which team originally drafted Dirk Nowitzki with the 9th overall pick in the 1998 NBA draft before trading him to Dallas?", opts: ["Milwaukee Bucks", "Boston Celtics", "Denver Nuggets", "Golden State Warriors"], a: "Milwaukee Bucks", exp: "The Milwaukee Bucks drafted Nowitzki in 1998 and traded him on draft night to the Mavericks for Robert Traylor.", diff: "Legendary", yr: 1998 },
     ],
     Tennis: [
       { q: "Who has won the most Men's Grand Slam singles titles in the Open Era?", opts: ["Novak Djokovic", "Rafael Nadal", "Roger Federer", "Pete Sampras"], a: "Novak Djokovic", exp: "Novak Djokovic has won 24 Grand Slam men's singles titles.", diff: "Easy", yr: 2023 },
-      { q: "Who was the first unseeded player to win the Wimbledon Men's Singles title in the Open Era?", opts: ["Boris Becker", "Goran Ivanišević", "Arthur Ashe", "Stefan Edberg"], a: "Boris Becker", exp: "At age 17, unseeded Boris Becker won Wimbledon in 1985.", diff: "Medium", yr: 1985 },
       { q: "How many French Open men's singles titles did Rafael Nadal win at Roland Garros?", opts: ["14", "12", "15", "10"], a: "14", exp: "Rafael Nadal won a historic 14 French Open titles between 2005 and 2022.", diff: "Easy", yr: 2022 },
-      { q: "Which female player completed the 'Golden Slam' (all 4 majors + Olympic Gold in 1 year)?", opts: ["Steffi Graf", "Serena Williams", "Martina Navratilova", "Margaret Court"], a: "Steffi Graf", exp: "Steffi Graf achieved the historic Golden Slam in 1988.", diff: "Medium", yr: 1988 },
-      { q: "Who won the 2023 Wimbledon Gentlemen's Singles final, defeating Novak Djokovic?", opts: ["Carlos Alcaraz", "Daniil Medvedev", "Jannik Sinner", "Alexander Zverev"], a: "Carlos Alcaraz", exp: "Carlos Alcaraz won a five-set thriller 1-6, 7-6, 6-1, 3-6, 6-4.", diff: "Easy", yr: 2023 },
+      { q: "Which female player completed the calendar 'Golden Slam' (all 4 Grand Slam singles titles + Olympic Gold in 1988)?", opts: ["Steffi Graf", "Serena Williams", "Martina Navratilova", "Margaret Court"], a: "Steffi Graf", exp: "Steffi Graf achieved the historic Golden Slam in 1988 at just 19 years old.", diff: "Medium", yr: 1988 },
+      { q: "Which unseeded male player won the 2001 Wimbledon singles championship as a wildcard entrant?", opts: ["Goran Ivanišević", "Patrick Rafter", "Tim Henman", "Marat Safin"], a: "Goran Ivanišević", exp: "Ranked 125th, Goran Ivanišević entered on a wildcard and defeated Patrick Rafter in a Monday final.", diff: "Hard", yr: 2001 },
+      { q: "Who defeated Roger Federer in the 2009 US Open final, snapping Federer's streak of 5 consecutive titles at Flushing Meadows?", opts: ["Juan Martín del Potro", "Novak Djokovic", "Rafael Nadal", "Andy Murray"], a: "Juan Martín del Potro", exp: "20-year-old Juan Martín del Potro won in five sets (3-6, 7-6, 4-6, 7-6, 6-2).", diff: "Legendary", yr: 2009 },
+      { q: "How many games were played in the fifth set of the historic Isner–Mahut match at Wimbledon 2010?", opts: ["138 games (70-68)", "122 games (62-60)", "104 games (53-51)", "96 games (49-47)"], a: "138 games (70-68)", exp: "John Isner defeated Nicolas Mahut 70-68 in the final set after 11 hours and 5 minutes of play.", diff: "Legendary", yr: 2010 },
     ],
     "Formula 1": [
       { q: "Which driver holds the record for most race wins in a single Formula 1 season (19 wins in 2023)?", opts: ["Max Verstappen", "Lewis Hamilton", "Michael Schumacher", "Sebastian Vettel"], a: "Max Verstappen", exp: "Max Verstappen won 19 out of 22 Grands Prix during the 2023 season.", diff: "Easy", yr: 2023 },
-      { q: "How many World Drivers' Championships did Michael Schumacher and Lewis Hamilton both win?", opts: ["7", "6", "8", "5"], a: "7", exp: "Both Michael Schumacher and Lewis Hamilton share the all-time record of 7 titles.", diff: "Easy", yr: 2020 },
-      { q: "Which team won the 2009 Formula 1 Constructors' Championship in their only year of existence?", opts: ["Brawn GP", "Red Bull Racing", "Toyota Racing", "Honda Racing"], a: "Brawn GP", exp: "Brawn GP won both the Drivers' (Button) and Constructors' Championships in 2009.", diff: "Medium", yr: 2009 },
-      { q: "At which circuit is the Eau Rouge and Raidillon corner complex located?", opts: ["Circuit de Spa-Francorchamps", "Monza", "Silverstone", "Suzuka"], a: "Circuit de Spa-Francorchamps", exp: "Eau Rouge is the world-famous uphill corner at Spa-Francorchamps in Belgium.", diff: "Easy", yr: 2023 },
+      { q: "Which team won the 2009 Formula 1 Constructors' Championship in their only year of existence?", opts: ["Brawn GP", "Red Bull Racing", "Toyota Racing", "Honda Racing"], a: "Brawn GP", exp: "Brawn GP won both the Drivers' (Jenson Button) and Constructors' Championships in 2009.", diff: "Medium", yr: 2009 },
+      { q: "Who won the rain-soaked 2008 Italian Grand Prix at Monza, becoming the youngest Grand Prix winner at the time?", opts: ["Sebastian Vettel", "Lewis Hamilton", "Fernando Alonso", "Robert Kubica"], a: "Sebastian Vettel", exp: "21-year-old Sebastian Vettel scored a sensational victory driving for Scuderia Toro Rosso.", diff: "Hard", yr: 2008 },
+      { q: "Who was the last driver to win the Formula 1 World Drivers' Championship driving for Scuderia Ferrari in 2007?", opts: ["Kimi Räikkönen", "Felipe Massa", "Fernando Alonso", "Michael Schumacher"], a: "Kimi Räikkönen", exp: "Kimi Räikkönen clinched the 2007 title by a single point over Lewis Hamilton and Fernando Alonso in Brazil.", diff: "Legendary", yr: 2007 },
+      { q: "At which British circuit did Ayrton Senna produce his legendary wet-weather opening lap overtaking 4 cars to lead in 1993?", opts: ["Donington Park", "Silverstone", "Brands Hatch", "Aintree"], a: "Donington Park", exp: "Ayrton Senna drove the 'Lap of the Gods' at the 1993 European Grand Prix at Donington Park.", diff: "Legendary", yr: 1993 },
     ],
     Badminton: [
-      { q: "Who won the Men's Singles Olympic Gold medal in badminton back-to-back in 2008 and 2012?", opts: ["Lin Dan", "Lee Chong Wei", "Chen Long", "Taufik Hidayat"], a: "Lin Dan", exp: "Lin Dan won gold medals at Beijing 2008 and London 2012.", diff: "Easy", yr: 2012 },
-      { q: "Which Danish player won the Men's Singles Olympic Gold at Tokyo 2020 and Paris 2024?", opts: ["Viktor Axelsen", "Peter Gade", "Anders Antonsen", "Jan Ø. Jørgensen"], a: "Viktor Axelsen", exp: "Viktor Axelsen won consecutive Olympic gold medals for Denmark.", diff: "Easy", yr: 2024 },
-      { q: "Who became India's first World Badminton Champion by winning gold in 2019?", opts: ["PV Sindhu", "Saina Nehwal", "Prakash Padukone", "Srikanth Kidambi"], a: "PV Sindhu", exp: "PV Sindhu won the BWF World Championship gold in Basel in 2019.", diff: "Medium", yr: 2019 },
+      { q: "Who won back-to-back Men's Singles Olympic Gold medals in badminton in 2008 and 2012?", opts: ["Lin Dan", "Lee Chong Wei", "Chen Long", "Taufik Hidayat"], a: "Lin Dan", exp: "China's Lin Dan won Olympic gold at Beijing 2008 and London 2012.", diff: "Easy", yr: 2012 },
+      { q: "Who became India's first BWF World Badminton Champion by winning women's singles gold in 2019?", opts: ["PV Sindhu", "Saina Nehwal", "Prakash Padukone", "Srikanth Kidambi"], a: "PV Sindhu", exp: "PV Sindhu defeated Nozomi Okuhara 21-7, 21-7 in Basel to win the World Championship.", diff: "Medium", yr: 2019 },
+      { q: "Which nation swept all 5 gold medals across Men's, Women's, and Doubles badminton at the London 2012 Olympics?", opts: ["China", "Indonesia", "South Korea", "Japan"], a: "China", exp: "China made a clean sweep of all five badminton golds at London 2012.", diff: "Hard", yr: 2012 },
+      { q: "Who was the first European player to win the Men's Singles Olympic Badminton Gold at Atlanta 1996?", opts: ["Poul-Erik Høyer Larsen", "Peter Gade", "Viktor Axelsen", "Morten Frost"], a: "Poul-Erik Høyer Larsen", exp: "Denmark's Poul-Erik Høyer Larsen defeated Dong Jiong in Atlanta to win Europe's first Olympic badminton gold.", diff: "Legendary", yr: 1996 },
     ],
     Hockey: [
       { q: "Which nation has won the most Men's Olympic Field Hockey gold medals (8 golds)?", opts: ["India", "Germany", "Australia", "Netherlands"], a: "India", exp: "India has won 8 Olympic Gold medals in men's field hockey (1928–1980).", diff: "Easy", yr: 1980 },
-      { q: "Which country won the 2023 Men's FIH Hockey World Cup held in Bhubaneswar & Rourkela?", opts: ["Germany", "Belgium", "Netherlands", "Australia"], a: "Germany", exp: "Germany defeated Belgium in a shootout to win the 2023 World Cup.", diff: "Medium", yr: 2023 },
-      { q: "Who is widely regarded as 'The Wizard' of field hockey?", opts: ["Dhyan Chand", "Balbir Singh Sr.", "Floris Jan Bovelander", "Jamie Dwyer"], a: "Dhyan Chand", exp: "Major Dhyan Chand led India to Olympic golds in 1928, 1932, and 1936.", diff: "Easy", yr: 1936 },
+      { q: "Which country won the 2023 Men's FIH Hockey World Cup held in Odisha, India?", opts: ["Germany", "Belgium", "Netherlands", "Australia"], a: "Germany", exp: "Germany defeated Belgium in a shootout to win the 2023 World Cup.", diff: "Medium", yr: 2023 },
+      { q: "Who scored the winning golden goal for Australia against the Netherlands in the 2004 Athens Men's Olympic Final?", opts: ["Jamie Dwyer", "Mark Knowles", "Michael McCann", "Brent Livermore"], a: "Jamie Dwyer", exp: "Jamie Dwyer scored in extra time to give Australia its historic first Olympic men's hockey gold.", diff: "Hard", yr: 2004 },
+      { q: "Which nation won the inaugural Men's FIH Hockey World Cup held in Barcelona in 1971?", opts: ["Pakistan", "India", "Spain", "Netherlands"], a: "Pakistan", exp: "Pakistan defeated hosts Spain 1-0 in the final to win the inaugural 1971 World Cup.", diff: "Legendary", yr: 1971 },
     ],
     Athletics: [
       { q: "What is Usain Bolt's men's 100 metres world record time set in Berlin in 2009?", opts: ["9.58 seconds", "9.63 seconds", "9.69 seconds", "9.72 seconds"], a: "9.58 seconds", exp: "Usain Bolt ran 9.58s on August 16, 2009 at the World Championships in Berlin.", diff: "Easy", yr: 2009 },
-      { q: "Who became the first person in history to run a marathon in under two hours (1:59:40) in Vienna?", opts: ["Eliud Kipchoge", "Kenenisa Bekele", "Kelvin Kiptum", "Haile Gebrselassie"], a: "Eliud Kipchoge", exp: "Eliud Kipchoge achieved the milestone in the INEOS 1:59 Challenge in 2019.", diff: "Easy", yr: 2019 },
-      { q: "Which male pole vaulter has broken the world record more than 8 times, clearing 6.25m at Paris 2024?", opts: ["Armand Duplantis", "Sergey Bubka", "Renaud Lavillenie", "Sam Kendricks"], a: "Armand Duplantis", exp: "Mondo Duplantis won Olympic gold setting a world record 6.25m in Paris.", diff: "Easy", yr: 2024 },
-      { q: "Who holds the men's long jump world record of 8.95 metres set in Tokyo in 1991?", opts: ["Mike Powell", "Bob Beamon", "Carl Lewis", "Dwight Phillips"], a: "Mike Powell", exp: "Mike Powell broke Bob Beamon's 23-year-old record at the 1991 World Championships.", diff: "Medium", yr: 1991 },
+      { q: "Who holds the men's long jump world record of 8.95 metres set in Tokyo in 1991?", opts: ["Mike Powell", "Bob Beamon", "Carl Lewis", "Dwight Phillips"], a: "Mike Powell", exp: "Mike Powell broke Bob Beamon's 23-year-old record at the 1991 World Championships in Tokyo.", diff: "Medium", yr: 1991 },
+      { q: "In which Swedish city did Jonathan Edwards set the men's triple jump world record of 18.29m in 1995?", opts: ["Gothenburg", "Stockholm", "Malmö", "Uppsala"], a: "Gothenburg", exp: "Jonathan Edwards broke the world record twice in the same competition in Gothenburg, Sweden.", diff: "Hard", yr: 1995 },
+      { q: "Who held the men's pole vault world record of 6.14m for 20 years from 1994 until Renaud Lavillenie broke it in 2014?", opts: ["Sergey Bubka", "Maksim Tarasov", "Jeff Hartwig", "Brad Walker"], a: "Sergey Bubka", exp: "Sergey Bubka vaulted 6.14m outdoors in Sestriere, Italy in July 1994.", diff: "Legendary", yr: 1994 },
     ],
   };
 
@@ -283,11 +308,21 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
     }
   }
 
-  // If pool was filtered down too much by difficulty, relax difficulty
+  // If pool was filtered down too much by specific difficulty, only accept adjacent difficulties
+  // (NEVER pollute Legendary with Easy or Easy with Legendary)
   if (pool.length < count) {
+    const allowedDiffs = targetDiff === "Legendary"
+      ? ["Legendary", "Hard"]
+      : targetDiff === "Hard"
+      ? ["Hard", "Medium"]
+      : targetDiff === "Easy"
+      ? ["Easy", "Medium"]
+      : ["Medium", "Easy", "Hard"];
+
     for (const s of sports) {
       const list = factsBank[s] || factsBank["Cricket"];
       for (const item of list) {
+        if (!allowedDiffs.includes(item.diff)) continue;
         pool.push({
           sport: s,
           difficulty: item.diff,

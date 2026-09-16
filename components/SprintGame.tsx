@@ -6,6 +6,7 @@ import { Check, X, Zap, Flame } from "lucide-react";
 import { useQuizStore } from "@/lib/store";
 import { audio } from "@/lib/audio";
 import { buildGame } from "@/lib/quiz";
+import { SPORT_LIST, type Sport, type Difficulty } from "@/data/questions";
 import ResultsScreen from "@/components/ResultsScreen";
 import { useAuth } from "@/components/AuthContext";
 
@@ -66,6 +67,8 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   const [finished, setFinished] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [sprintSport, setSprintSport] = useState<Sport | "All Sports">("All Sports");
+  const [sprintDifficulty, setSprintDifficulty] = useState<Difficulty | "Mixed">("Mixed");
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize sprint with a large pool of questions
@@ -83,8 +86,8 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   useEffect(() => {
     if (countdown === null) return;
     if (countdown === 0) {
-      const pool = buildGame({ sport: "All Sports", difficulty: "Mixed", count: 60 });
-      start(pool, { sport: "All Sports", difficulty: "Mixed", mode: "sprint" });
+      const pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 60 });
+      start(pool, { sport: sprintSport, difficulty: sprintDifficulty, mode: "sprint" });
       setGameStarted(true);
       setCountdown(null);
       return;
@@ -94,7 +97,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       audio.tick();
     }, 800);
     return () => clearTimeout(timer);
-  }, [countdown, start]);
+  }, [countdown, start, sprintSport, sprintDifficulty]);
 
   // Sprint countdown (60 seconds total)
   useEffect(() => {
@@ -223,30 +226,73 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
 
   if (!gameStarted) {
     return (
-      <div className="arena-container min-h-[70vh] flex items-center justify-center">
+      <div className="arena-container min-h-[75vh] flex items-center justify-center py-10">
         <motion.div
-          className="text-center max-w-lg"
+          className="text-center max-w-xl w-full arena-card arena-card-shine p-6 sm:p-8"
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.2, 0.9, 0.3, 1] }}
         >
-          <div className="arena-eyebrow mb-5 justify-center">60 Second Sprint</div>
-          <h1 className="font-display text-5xl sm:text-7xl tracking-tight mb-5 font-bold">
+          <div className="arena-eyebrow mb-3 justify-center">60 Second Sprint</div>
+          <h1 className="font-display text-4xl sm:text-6xl tracking-tight mb-3 font-bold">
             Answer fast.<br />
             <span className="arena-gradient-text">Score big.</span>
           </h1>
-          <p className="text-arena-muted mb-10 max-w-md mx-auto leading-relaxed">
-            60 seconds on the clock. Questions keep coming. Every correct answer scores.
-            Wrong answers cost you nothing but time.
+          <p className="text-arena-muted text-sm mb-6 max-w-md mx-auto leading-relaxed">
+            60 seconds on the clock. Continuous rapid-fire questions.
+            Wrong answers cost you nothing but time. Choose your sport & difficulty below!
           </p>
+
+          {/* Sport Selector */}
+          <div className="text-left mb-4">
+            <label className="block text-xs font-semibold text-arena-muted uppercase tracking-wider mb-1.5">
+              Sport Category
+            </label>
+            <select
+              className="arena-input text-sm"
+              value={sprintSport}
+              onChange={(e) => setSprintSport(e.target.value as Sport | "All Sports")}
+            >
+              <option value="All Sports" className="bg-arena-panel">All Sports (Multi-Sport Sprint)</option>
+              {SPORT_LIST.map((s) => (
+                <option key={s} value={s} className="bg-arena-panel">
+                  {s === "Football" ? "Football (Soccer)" : s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Difficulty Selector */}
+          <div className="text-left mb-6">
+            <label className="block text-xs font-semibold text-arena-muted uppercase tracking-wider mb-1.5">
+              Difficulty Tier
+            </label>
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+              {(["Easy", "Medium", "Hard", "Legendary", "Mixed"] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => { setSprintDifficulty(d); audio.click(); }}
+                  className={`py-2 px-1 text-xs rounded-xl font-bold transition-all border text-center ${
+                    sprintDifficulty === d
+                      ? "bg-arena-accent/20 border-arena-accent text-arena-accent shadow-[0_0_15px_rgba(0,212,255,0.25)]"
+                      : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text hover:border-white/20"
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <motion.button
-            className="arena-btn arena-btn-primary text-lg px-8 py-4"
+            className="arena-btn arena-btn-primary text-base sm:text-lg w-full justify-center py-3.5 sm:py-4"
             onClick={startSprint}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
           >
             <Zap size={20} />
-            Start Sprint
+            Start {sprintDifficulty} {sprintSport === "All Sports" ? "Sprint" : `${sprintSport} Sprint`}
           </motion.button>
         </motion.div>
       </div>
