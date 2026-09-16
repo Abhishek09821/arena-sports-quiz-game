@@ -6,26 +6,50 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { LogIn, ArrowLeft, Mail, Lock, AlertCircle, Shield } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
+import { validateEmail } from "@/lib/auth/email_validator";
 import { audio } from "@/lib/audio";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setError("");
+    setGoogleLoading(true);
+    audio.click();
+    const res = await signInWithGoogle("/play");
+    if (res.error) {
+      setError(res.error);
+      setGoogleLoading(false);
+      audio.wrong();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    // Validate email
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) {
+      setError(emailCheck.error || "Please enter a valid email address.");
+      audio.wrong();
+      return;
+    }
+
     setLoading(true);
     audio.click();
 
     const res = await signIn(email, password);
     if (res.error) {
       setError(res.error);
+      audio.wrong();
       setLoading(false);
     } else {
       audio.correct();
@@ -70,6 +94,29 @@ export default function LoginPage() {
               </div>
             </motion.div>
           )}
+
+          {/* Google One-Click Sign In */}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={googleLoading}
+            className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-white/[.04] border border-white/10 hover:border-white/25 hover:bg-white/[.08] text-sm font-semibold transition-all text-arena-text shadow-sm"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
+              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
+              <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
+              <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
+            </svg>
+            {googleLoading ? "Connecting to Google..." : "Continue with Google"}
+          </button>
+
+          <div className="relative my-5 flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-arena-line" /></div>
+            <span className="relative bg-arena-panel px-3 text-[11px] font-bold tracking-wider uppercase text-arena-muted">
+              or sign in with email
+            </span>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

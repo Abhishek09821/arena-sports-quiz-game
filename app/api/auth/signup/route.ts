@@ -1,19 +1,26 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
+import { validateEmail } from "@/lib/auth/email_validator";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const email = (body.email || "").trim().toLowerCase();
+    const rawEmail = (body.email || "").trim();
     const password = body.password || "";
-    const displayName = (body.displayName || "").trim() || email.split("@")[0] || "Player";
 
-    if (!email || !email.includes("@")) {
+    // 1. Strict email syntax, TLD, burner and fake domain validation
+    const emailResult = validateEmail(rawEmail);
+    if (!emailResult.valid || !emailResult.normalized) {
       return NextResponse.json(
-        { success: false, error: "Please provide a valid email address." },
+        { success: false, error: emailResult.error || "Please provide a valid email address." },
         { status: 400 }
       );
     }
+    const email = emailResult.normalized;
+
+    // 2. Sanitize display name to eliminate XSS / HTML injection vectors
+    const cleanName = (body.displayName || "").replace(/<[^>]*>?/gm, "").trim();
+    const displayName = cleanName.slice(0, 40) || email.split("@")[0] || "Player";
 
     if (!password || password.length < 6) {
       return NextResponse.json(

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { X, Mail, Lock, User, Shield, Sparkles, LogIn, UserPlus, AlertCircle, KeyRound, ArrowRight } from "lucide-react";
 import { useAuth, AuthModalMode } from "@/components/AuthContext";
+import { validateEmail } from "@/lib/auth/email_validator";
 import { audio } from "@/lib/audio";
 
 export default function AuthModal() {
@@ -15,6 +16,7 @@ export default function AuthModal() {
     authRedirectUrl,
     closeAuthModal,
     signIn,
+    signInWithGoogle,
     signUp,
     elevateToAdmin,
   } = useAuth();
@@ -26,6 +28,7 @@ export default function AuthModal() {
   const [adminPasskey, setAdminPasskey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   // Sync mode with context
   useEffect(() => {
@@ -46,9 +49,33 @@ export default function AuthModal() {
 
   if (!isAuthModalOpen) return null;
 
+  const handleGoogleAuth = async () => {
+    setError(null);
+    setGoogleLoading(true);
+    audio.click();
+    const target = authRedirectUrl || "/play";
+    const res = await signInWithGoogle(target);
+    if (res.error) {
+      setError(res.error);
+      setGoogleLoading(false);
+      audio.wrong();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Validate email for user signup / signin
+    if (mode !== "admin" || (email && !adminPasskey)) {
+      const emailCheck = validateEmail(email);
+      if (!emailCheck.valid) {
+        setError(emailCheck.error || "Please enter a valid email address.");
+        audio.wrong();
+        return;
+      }
+    }
+
     setLoading(true);
     audio.click();
 
@@ -238,6 +265,33 @@ export default function AuthModal() {
                 <span>{error}</span>
               </div>
             </motion.div>
+          )}
+
+          {/* Google Auth for User modes */}
+          {mode !== "admin" && (
+            <>
+              <button
+                type="button"
+                onClick={handleGoogleAuth}
+                disabled={googleLoading}
+                className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl bg-white/[.04] border border-white/10 hover:border-white/25 hover:bg-white/[.08] text-xs font-semibold transition-all text-arena-text shadow-sm mb-4"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24">
+                  <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
+                  <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
+                  <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
+                  <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
+                </svg>
+                {googleLoading ? "Connecting to Google..." : mode === "signup" ? "Sign up with Google" : "Sign in with Google"}
+              </button>
+
+              <div className="relative mb-4 flex items-center justify-center">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-arena-line" /></div>
+                <span className="relative bg-arena-panel px-2 text-[10px] font-bold tracking-wider uppercase text-arena-muted">
+                  or continue with email
+                </span>
+              </div>
+            </>
           )}
 
           {/* Auth Form */}

@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { validateEmail } from "@/lib/auth/email_validator";
 
 export interface UserProfile {
   id: string;
@@ -31,6 +32,7 @@ interface AuthContextType {
   requireAuth: (targetUrl?: string, callback?: () => void) => boolean;
   // Actions
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signInWithGoogle: (redirectPath?: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, displayName?: string) => Promise<{ error?: string; code?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -40,6 +42,16 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ADMIN_EMAILS = new Set(["abhishek@gmail.com", "akhilbhai605@gmail.com"]);
+
+/** Validate and sanitize redirect URLs to prevent open-redirect / script injection */
+function sanitizeRedirect(url?: string | null): string | null {
+  if (!url) return null;
+  const clean = url.trim();
+  if (clean.startsWith("/") && !clean.startsWith("//") && !clean.toLowerCase().startsWith("/\\")) {
+    return clean;
+  }
+  return "/play";
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -54,9 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const openAuthModal = useCallback((mode: AuthModalMode = "signup", redirectUrl?: string) => {
     setAuthModalMode(mode);
-    if (redirectUrl) {
-      setAuthRedirectUrl(redirectUrl);
-    }
+    setAuthRedirectUrl(sanitizeRedirect(redirectUrl));
     setIsAuthModalOpen(true);
   }, []);
 
@@ -141,10 +151,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const signInWithGoogle = async (redirectPath = "/play") => {
+    if (!supabase) return { error: "Supabase connection is not available." };
+    const safePath = (redirectPath && redirectPath.startsWith("/") && !redirectPath.startsWith("//")) ? redirectPath : "/play";
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const redirectTo = `${origin}${safePath}`;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+
+    if (error) return { error: error.message };
+    return {};
+  };
+
   const signIn = async (email: string, password: string) => {
     if (!supabase) return { error: "Supabase connection is not available." };
+    const emailResult = validateEmail(email);
+    if (!emailResult.valid || !emailResult.normalized) {
+      return { error: emailResult.error || "Please enter a valid email address." };
+    }
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
+      email: emailResult.normalized,
       password,
     });
     if (error) return { error: error.message };
@@ -157,15 +192,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, displayName?: string) => {
     if (!supabase) return { error: "Supabase connection is not available." };
 
+    const emailResult = validateEmail(email);
+    if (!emailResult.valid || !emailResult.normalized) {
+      return { error: emailResult.error || "Please enter a valid email address." };
+    }
+    const cleanEmail = emailResult.normalized;
+    const cleanName = (displayName || "").replace(/<[^>]*>?/gm, "").trim().slice(0, 40);
+
     try {
       // 1. Create account via server-side API to guarantee email confirmation and bypass rate-limit issues
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim().toLowerCase(),
+          email: cleanEmail,
           password,
-          displayName,
+          displayName: cleanName,
         }),
       });
 
@@ -178,7 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 2. Immediately sign in the user
-      const loginRes = await signIn(email, password);
+      const loginRes = await signIn(cleanEmail, password);
       if (loginRes.error) {
         return { error: loginRes.error };
       }
@@ -263,6 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         closeAuthModal,
         requireAuth,
         signIn,
+        signInWithGoogle,
         signUp,
         signOut,
         refreshProfile,
