@@ -106,6 +106,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string): Valid
   const validSports = new Set(SPORT_LIST);
   let resolvedSport: Sport = "Cricket";
   const rawSportLower = (q.sport || "").toLowerCase().trim();
+  const normalizedSportKey = rawSportLower.replace(/\s*\/\s*/g, "/").replace(/\s+/g, " ");
 
   const sportAliasMap: Record<string, Sport> = {
     cricket: "Cricket",
@@ -117,6 +118,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string): Valid
     formula1: "Formula 1",
     f1: "Formula 1",
     "wwe/wwf": "WWE/WWF",
+    "wwe / wwf": "WWE/WWF",
     wwe: "WWE/WWF",
     wwf: "WWE/WWF",
     "pro wrestling": "WWE/WWF",
@@ -125,12 +127,12 @@ export function validateQuestion(raw: unknown, targetTournament?: string): Valid
     mma: "UFC",
   };
 
-  if (sportAliasMap[rawSportLower]) {
-    resolvedSport = sportAliasMap[rawSportLower];
+  if (sportAliasMap[rawSportLower] || sportAliasMap[normalizedSportKey]) {
+    resolvedSport = sportAliasMap[rawSportLower] || sportAliasMap[normalizedSportKey];
   } else if (validSports.has(q.sport as Sport)) {
     resolvedSport = q.sport as Sport;
   } else {
-    const matched = SPORT_LIST.find((s) => s.toLowerCase() === rawSportLower);
+    const matched = SPORT_LIST.find((s) => s.toLowerCase() === rawSportLower || s.toLowerCase() === normalizedSportKey);
     if (matched) {
       resolvedSport = matched;
     } else {
