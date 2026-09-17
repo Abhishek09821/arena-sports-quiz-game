@@ -101,6 +101,7 @@ export interface SelectionOptions {
   sport?: Sport | "All Sports";
   difficulty?: Difficulty | "Mixed";
   count: number;
+  category?: string;
   yearRange?: [number, number];
   exclude?: Set<string>;
 }
@@ -153,103 +154,106 @@ export function getUnseenCount(_sport?: Sport | "All Sports", _difficulty?: Diff
  * Built-in fallback questions generator for synchronous game building (strictly 6 sports, 1975-2026)
  */
 const SYNC_FALLBACK_POOL: Question[] = [
-  // Easy
-  { id: "sync-1", sport: "Cricket", difficulty: "Easy", year: 2011, question: "Who won the 2011 ICC Cricket World Cup?", options: ["India", "Sri Lanka", "Australia", "England"], answer: 0, explanation: "India defeated Sri Lanka in the final in Mumbai in 2011." },
-  { id: "sync-ipl-1", sport: "Cricket", difficulty: "Easy", year: 2008, question: "Which team won the inaugural Indian Premier League (IPL) title in 2008 under Shane Warne?", options: ["Rajasthan Royals", "Chennai Super Kings", "Delhi Daredevils", "Kings XI Punjab"], answer: 0, explanation: "Rajasthan Royals defeated CSK by 3 wickets in the 2008 final at DY Patil Stadium." },
-  { id: "sync-ipl-2", sport: "Cricket", difficulty: "Easy", year: 2013, question: "Who scored an unbeaten 175 off 66 balls in IPL 2013, the highest individual score in IPL history?", options: ["Chris Gayle", "Brendon McCullum", "AB de Villiers", "KL Rahul"], answer: 0, explanation: "Chris Gayle smashed 175* for Royal Challengers Bangalore against Pune Warriors India." },
-  { id: "sync-ipl-3", sport: "Cricket", difficulty: "Easy", year: 2024, question: "Which franchise won the IPL 2024 championship by defeating Sunrisers Hyderabad in Chennai?", options: ["Kolkata Knight Riders", "Sunrisers Hyderabad", "Rajasthan Royals", "Royal Challengers Bengaluru"], answer: 0, explanation: "KKR won their third IPL title with an 8-wicket victory in the 2024 final." },
-  { id: "sync-ipl-4", sport: "Cricket", difficulty: "Easy", year: 2016, question: "Who holds the record for the most runs in a single IPL season with 973 runs in 2016?", options: ["Virat Kohli", "David Warner", "Jos Buttler", "Shubman Gill"], answer: 0, explanation: "Virat Kohli scored 973 runs including 4 centuries in IPL 2016." },
-  { id: "sync-2", sport: "Football", difficulty: "Easy", year: 2022, question: "Which nation won the 2022 FIFA World Cup in Qatar?", options: ["Argentina", "France", "Croatia", "Morocco"], answer: 0, explanation: "Argentina defeated France on penalties in the 2022 final." },
-  { id: "sync-ucl-1", sport: "Football", difficulty: "Easy", year: 2023, question: "Which club won the 2023 UEFA Champions League final against Inter Milan to complete a European treble?", options: ["Manchester City", "Inter Milan", "Real Madrid", "Bayern Munich"], answer: 0, explanation: "Manchester City defeated Inter 1-0 in Istanbul with a goal from Rodri." },
-  { id: "sync-ucl-2", sport: "Football", difficulty: "Easy", year: 2022, question: "Who scored the winning goal for Real Madrid against Liverpool in the 2022 UEFA Champions League final in Paris?", options: ["Vinícius Júnior", "Karim Benzema", "Luka Modrić", "Rodrygo"], answer: 0, explanation: "Vinícius Júnior struck in the 59th minute to win Real Madrid's 14th European Cup." },
-  { id: "sync-pl-2", sport: "Football", difficulty: "Easy", year: 2023, question: "Who broke the Premier League single-season scoring record with 36 goals in 2022-23?", options: ["Erling Haaland", "Harry Kane", "Mohamed Salah", "Alan Shearer"], answer: 0, explanation: "Erling Haaland scored 36 Premier League goals in his debut season for Manchester City." },
-  { id: "sync-3", sport: "Basketball", difficulty: "Easy", year: 2023, question: "Which player became the NBA's all-time scoring leader in 2023?", options: ["LeBron James", "Kareem Abdul-Jabbar", "Michael Jordan", "Kobe Bryant"], answer: 0, explanation: "LeBron James passed Kareem's record in February 2023." },
-  { id: "sync-nba-1", sport: "Basketball", difficulty: "Easy", year: 2016, question: "Which team came back from a 3-1 deficit to win the 2016 NBA Finals?", options: ["Cleveland Cavaliers", "Golden State Warriors", "Oklahoma City Thunder", "Toronto Raptors"], answer: 0, explanation: "LeBron James and the Cavaliers defeated the 73-9 Warriors in Game 7." },
-  { id: "sync-nba-3", sport: "Basketball", difficulty: "Easy", year: 2024, question: "Which team won the 2024 NBA Championship by defeating the Dallas Mavericks 4-1?", options: ["Boston Celtics", "Dallas Mavericks", "Denver Nuggets", "Minnesota Timberwolves"], answer: 0, explanation: "Jaylen Brown was named Finals MVP as the Celtics won their record 18th NBA title." },
-  { id: "sync-4", sport: "Formula 1", difficulty: "Easy", year: 2023, question: "Who won the 2023 Formula 1 World Drivers' Championship with 19 race wins?", options: ["Max Verstappen", "Lewis Hamilton", "Sergio Pérez", "Fernando Alonso"], answer: 0, explanation: "Max Verstappen won 19 of 22 races in 2023." },
-  { id: "sync-f1-1", sport: "Formula 1", difficulty: "Easy", year: 2021, question: "Who won his first Formula 1 World Championship on the final lap of the 2021 Abu Dhabi Grand Prix?", options: ["Max Verstappen", "Lewis Hamilton", "Valtteri Bottas", "Lando Norris"], answer: 0, explanation: "Verstappen overtook Hamilton on lap 58 following a late safety car restart." },
-  { id: "sync-f1-3", sport: "Formula 1", difficulty: "Easy", year: 2024, question: "Which driver won the 2024 Monaco Grand Prix from pole position for Scuderia Ferrari?", options: ["Charles Leclerc", "Oscar Piastri", "Carlos Sainz", "Lando Norris"], answer: 0, explanation: "Charles Leclerc became the first Monegasque driver to win his home race since 1931." },
-  { id: "sync-5", sport: "WWE/WWF", difficulty: "Easy", year: 2014, question: "Who ended The Undertaker's 21-0 undefeated streak at WrestleMania XXX?", options: ["Brock Lesnar", "Roman Reigns", "John Cena", "Triple H"], answer: 0, explanation: "Brock Lesnar defeated The Undertaker at WrestleMania XXX in New Orleans in 2014." },
-  { id: "sync-wwe-1", sport: "WWE/WWF", difficulty: "Easy", year: 2024, question: "Who defeated Roman Reigns in the main event of WrestleMania XL (40) to win the Undisputed WWE Championship?", options: ["Cody Rhodes", "The Rock", "Seth Rollins", "CM Punk"], answer: 0, explanation: "Cody Rhodes finished his story in a Bloodline Rules match at WrestleMania 40 in Philadelphia." },
-  { id: "sync-wwe-2", sport: "WWE/WWF", difficulty: "Easy", year: 2001, question: "Who holds the record for winning the most Men's Royal Rumble matches in WWE history (3 wins)?", options: ["Stone Cold Steve Austin", "Hulk Hogan", "Shawn Michaels", "John Cena"], answer: 0, explanation: "Steve Austin won the Royal Rumble in 1997, 1998, and 2001." },
-  { id: "sync-6", sport: "UFC", difficulty: "Easy", year: 2019, question: "Who scored the fastest knockout in UFC history (5 seconds) against Ben Askren?", options: ["Jorge Masvidal", "Conor McGregor", "Francis Ngannou", "Duane Ludwig"], answer: 0, explanation: "Jorge Masvidal landed a flying knee 5 seconds into UFC 239 in 2019." },
-  { id: "sync-ufc-1", sport: "UFC", difficulty: "Easy", year: 2015, question: "Who knocked out Jose Aldo in 13 seconds to win the featherweight title at UFC 194?", options: ["Conor McGregor", "Max Holloway", "Chad Mendes", "Frankie Edgar"], answer: 0, explanation: "Conor McGregor landed a counter left hook 13 seconds into the 1st round in Las Vegas." },
-  { id: "sync-ufc-3", sport: "UFC", difficulty: "Easy", year: 2024, question: "Who scored a dramatic knockout at 4:59 of round 5 to win the BMF title at UFC 300?", options: ["Max Holloway", "Justin Gaethje", "Dustin Poirier", "Charles Oliveira"], answer: 0, explanation: "Max Holloway pointed to the center and knocked out Justin Gaethje with one second remaining." },
-  { id: "sync-11", sport: "Football", difficulty: "Easy", year: 2023, question: "Who has won the most Ballon d'Or trophies in football history (8)?", options: ["Lionel Messi", "Cristiano Ronaldo", "Michel Platini", "Johan Cruyff"], answer: 0, explanation: "Lionel Messi won his record 8th Ballon d'Or in 2023." },
-  { id: "sync-12", sport: "Football", difficulty: "Easy", year: 2024, question: "Which club has won the most UEFA Champions League / European Cup titles (15)?", options: ["Real Madrid", "AC Milan", "Bayern Munich", "Liverpool"], answer: 0, explanation: "Real Madrid won their 15th title in June 2024 at Wembley." },
+  // Cricket
+  { id: "sync-ipl-1", sport: "Cricket", difficulty: "Easy", year: 2008, question: "Which team won the inaugural Indian Premier League (IPL) title in 2008 under Shane Warne?", options: ["Rajasthan Royals", "Chennai Super Kings", "Delhi Daredevils", "Kings XI Punjab"], answer: 0, explanation: "Rajasthan Royals defeated CSK by 3 wickets in the 2008 final at DY Patil Stadium.", category: "Indian Premier League (IPL)" },
+  { id: "sync-ipl-2", sport: "Cricket", difficulty: "Easy", year: 2013, question: "Who scored an unbeaten 175 off 66 balls in IPL 2013, the highest individual score in IPL history?", options: ["Chris Gayle", "Brendon McCullum", "AB de Villiers", "KL Rahul"], answer: 0, explanation: "Chris Gayle smashed 175* for Royal Challengers Bangalore against Pune Warriors India.", category: "Indian Premier League (IPL)" },
+  { id: "sync-ipl-3", sport: "Cricket", difficulty: "Easy", year: 2024, question: "Which franchise won the IPL 2024 championship by defeating Sunrisers Hyderabad in Chennai?", options: ["Kolkata Knight Riders", "Sunrisers Hyderabad", "Rajasthan Royals", "Royal Challengers Bengaluru"], answer: 0, explanation: "KKR won their third IPL title with an 8-wicket victory in the 2024 final.", category: "Indian Premier League (IPL)" },
+  { id: "sync-ipl-4", sport: "Cricket", difficulty: "Easy", year: 2016, question: "Who holds the record for the most runs in a single IPL season with 973 runs in 2016?", options: ["Virat Kohli", "David Warner", "Jos Buttler", "Shubman Gill"], answer: 0, explanation: "Virat Kohli scored 973 runs including 4 centuries in IPL 2016.", category: "Indian Premier League (IPL)" },
+  { id: "sync-ipl-5", sport: "Cricket", difficulty: "Medium", year: 2022, question: "Which franchise won their maiden IPL championship in their debut season in 2022 under Hardik Pandya?", options: ["Gujarat Titans", "Lucknow Super Giants", "Rajasthan Royals", "Royal Challengers Bangalore"], answer: 0, explanation: "Gujarat Titans defeated Rajasthan Royals by 7 wickets in the 2022 final in Ahmedabad.", category: "Indian Premier League (IPL)" },
+  { id: "sync-1", sport: "Cricket", difficulty: "Easy", year: 2011, question: "Who won the 2011 ICC Cricket World Cup by defeating Sri Lanka in the final in Mumbai?", options: ["India", "Sri Lanka", "Australia", "England"], answer: 0, explanation: "MS Dhoni hit a six to finish on 91* as India won the 2011 World Cup.", category: "ICC Cricket World Cup" },
+  { id: "sync-9", sport: "Cricket", difficulty: "Medium", year: 2019, question: "Which team won the 2019 ICC Cricket World Cup final at Lord's on boundary countback?", options: ["England", "New Zealand", "India", "Australia"], answer: 0, explanation: "England won by boundary countback after a tied match and Super Over.", category: "ICC Cricket World Cup" },
+  { id: "sync-h1", sport: "Cricket", difficulty: "Hard", year: 1999, question: "Who was the Man of the Match in the 1999 ICC Cricket World Cup Final at Lord's?", options: ["Shane Warne", "Glenn McGrath", "Adam Gilchrist", "Steve Waugh"], answer: 0, explanation: "Shane Warne took 4 for 33 as Australia bowled Pakistan out for 132.", category: "ICC Cricket World Cup" },
+  { id: "sync-c-2024", sport: "Cricket", difficulty: "Medium", year: 2024, question: "Which nation won the 2024 ICC Men's T20 World Cup by defeating South Africa in the final?", options: ["India", "South Africa", "England", "Australia"], answer: 0, explanation: "India won by 7 runs in Barbados with Virat Kohli scoring 76 and Jasprit Bumrah taking 2/18.", category: "ICC Men's T20 World Cup" },
+  { id: "sync-c-t20", sport: "Cricket", difficulty: "Hard", year: 2016, question: "Who hit 4 consecutive sixes off Ben Stokes in the final over of the 2016 ICC Men's T20 World Cup Final?", options: ["Carlos Brathwaite", "Marlon Samuels", "Chris Gayle", "Andre Russell"], answer: 0, explanation: "Carlos Brathwaite powered West Indies to victory with 4 consecutive sixes at Eden Gardens.", category: "ICC Men's T20 World Cup" },
+  { id: "sync-ashes-1", sport: "Cricket", difficulty: "Medium", year: 1993, question: "Who bowled the famous 'Ball of the Century' to dismiss Mike Gatting at Old Trafford in the 1993 Ashes?", options: ["Shane Warne", "Glenn McGrath", "Merv Hughes", "Craig McDermott"], answer: 0, explanation: "Shane Warne's leg-break drifted and spun sharply to clip off stump.", category: "The Ashes Series" },
+  { id: "sync-ashes-2", sport: "Cricket", difficulty: "Hard", year: 2019, question: "Who scored an unbeaten 135 to lead England to an epic 1-wicket Ashes victory at Headingley in 2019?", options: ["Ben Stokes", "Joe Root", "Jonny Bairstow", "Jos Buttler"], answer: 0, explanation: "Ben Stokes and Jack Leach (1*) put on 76 for the 10th wicket.", category: "The Ashes Series" },
 
-  // Medium
-  { id: "sync-9", sport: "Cricket", difficulty: "Medium", year: 2019, question: "Which team won the 2019 ICC Cricket World Cup final at Lord's on boundary countback?", options: ["England", "New Zealand", "India", "Australia"], answer: 0, explanation: "England won by boundary countback after a tied match and Super Over." },
-  { id: "sync-ipl-5", sport: "Cricket", difficulty: "Medium", year: 2022, question: "Which franchise won their maiden IPL championship in their debut season in 2022 under Hardik Pandya?", options: ["Gujarat Titans", "Lucknow Super Giants", "Rajasthan Royals", "Royal Challengers Bangalore"], answer: 0, explanation: "Gujarat Titans defeated Rajasthan Royals by 7 wickets in the 2022 final in Ahmedabad." },
-  { id: "sync-c-2024", sport: "Cricket", difficulty: "Medium", year: 2024, question: "Which nation won the 2024 ICC Men's T20 World Cup by defeating South Africa in the final?", options: ["India", "South Africa", "England", "Australia"], answer: 0, explanation: "India won by 7 runs in Barbados with Virat Kohli scoring 76 and Jasprit Bumrah taking 2/18." },
-  { id: "sync-10", sport: "Football", difficulty: "Medium", year: 2004, question: "Which country won the UEFA Euro 2004 in a legendary upset?", options: ["Greece", "Portugal", "Czech Republic", "France"], answer: 0, explanation: "Greece defeated hosts Portugal 1-0 in Lisbon in 2004." },
-  { id: "sync-ucl-3", sport: "Football", difficulty: "Medium", year: 2005, question: "Which club overcame a 3-0 halftime deficit to win the 2005 Champions League final in Istanbul?", options: ["Liverpool", "AC Milan", "Juventus", "Chelsea"], answer: 0, explanation: "Steven Gerrard inspired Liverpool's 3-3 comeback before winning 3-2 on penalties." },
-  { id: "sync-pl-1", sport: "Football", difficulty: "Medium", year: 2016, question: "Which manager led Leicester City to a fairytale 5000-1 Premier League title in 2015-16?", options: ["Claudio Ranieri", "Nigel Pearson", "Craig Shakespeare", "Brendan Rodgers"], answer: 0, explanation: "Claudio Ranieri guided Leicester to the title with 81 points." },
-  { id: "sync-15", sport: "Football", difficulty: "Medium", year: 2016, question: "Which nation won the UEFA Euro 2016 championship by defeating hosts France?", options: ["Portugal", "Spain", "Germany", "Italy"], answer: 0, explanation: "Portugal defeated France 1-0 in extra time at Stade de France." },
-  { id: "sync-17", sport: "Basketball", difficulty: "Medium", year: 2004, question: "Which country defeated Team USA in men's basketball at the 2004 Athens Olympics?", options: ["Argentina", "Lithuania", "Spain", "Italy"], answer: 0, explanation: "Manu Ginobili led Argentina to an 89-81 victory on the way to Olympic gold." },
-  { id: "sync-nba-2", sport: "Basketball", difficulty: "Medium", year: 2021, question: "Who won the 2021 NBA Finals MVP after scoring 50 points in Game 6 for the Milwaukee Bucks?", options: ["Giannis Antetokounmpo", "Khris Middleton", "Jrue Holiday", "Devin Booker"], answer: 0, explanation: "Giannis Antetokounmpo recorded 50 points, 14 rebounds, and 5 blocks in Game 6." },
-  { id: "sync-f1-4", sport: "Formula 1", difficulty: "Medium", year: 2009, question: "Which team won both the Drivers' and Constructors' Championships in their sole F1 season in 2009?", options: ["Brawn GP", "Red Bull Racing", "McLaren", "Toyota"], answer: 0, explanation: "Ross Brawn's team won with Jenson Button taking the Drivers' Championship." },
-  { id: "sync-w2", sport: "WWE/WWF", difficulty: "Medium", year: 1998, question: "Which match featured Mankind being thrown off the top of Hell in a Cell by The Undertaker?", options: ["King of the Ring 1998", "WrestleMania XIV", "SummerSlam 1998", "Royal Rumble 1999"], answer: 0, explanation: "Mick Foley fell from the cell structure at King of the Ring in Pittsburgh in June 1998." },
-  { id: "sync-wwe-3", sport: "WWE/WWF", difficulty: "Medium", year: 2015, question: "Who cashed in Money in the Bank during the main event of WrestleMania 31 in the 'Heist of the Century'?", options: ["Seth Rollins", "Brock Lesnar", "Roman Reigns", "Dean Ambrose"], answer: 0, explanation: "Seth Rollins pinned Roman Reigns to win the WWE World Heavyweight Championship." },
-  { id: "sync-u2", sport: "UFC", difficulty: "Medium", year: 2018, question: "Who submitted Conor McGregor in the 4th round at UFC 229 in Las Vegas?", options: ["Khabib Nurmagomedov", "Nate Diaz", "Dustin Poirier", "Justin Gaethje"], answer: 0, explanation: "Khabib Nurmagomedov retained his lightweight championship at UFC 229 in October 2018." },
-  { id: "sync-ufc-2", sport: "UFC", difficulty: "Medium", year: 2011, question: "Who became the youngest champion in UFC history at age 23 by defeating Maurício 'Shogun' Rua at UFC 128?", options: ["Jon Jones", "Georges St-Pierre", "Jose Aldo", "Cain Velasquez"], answer: 0, explanation: "Jon Jones captured the light heavyweight championship in Newark in March 2011." },
+  // Football
+  { id: "sync-2", sport: "Football", difficulty: "Easy", year: 2022, question: "Which nation won the 2022 FIFA World Cup in Qatar?", options: ["Argentina", "France", "Croatia", "Morocco"], answer: 0, explanation: "Argentina defeated France on penalties in the 2022 final.", category: "FIFA World Cup" },
+  { id: "sync-h2", sport: "Football", difficulty: "Hard", year: 2010, question: "Which referee officiated the 2010 FIFA World Cup Final between Spain and Netherlands, issuing 14 yellow cards?", options: ["Howard Webb", "Pierluigi Collina", "Nicola Rizzoli", "Massimo Busacca"], answer: 0, explanation: "English referee Howard Webb refereed Spain vs Netherlands in Johannesburg.", category: "FIFA World Cup" },
+  { id: "sync-ucl-1", sport: "Football", difficulty: "Easy", year: 2023, question: "Which club won the 2023 UEFA Champions League final against Inter Milan to complete a European treble?", options: ["Manchester City", "Inter Milan", "Real Madrid", "Bayern Munich"], answer: 0, explanation: "Manchester City defeated Inter 1-0 in Istanbul with a goal from Rodri.", category: "UEFA Champions League" },
+  { id: "sync-ucl-2", sport: "Football", difficulty: "Easy", year: 2022, question: "Who scored the winning goal for Real Madrid against Liverpool in the 2022 UEFA Champions League final in Paris?", options: ["Vinícius Júnior", "Karim Benzema", "Luka Modrić", "Rodrygo"], answer: 0, explanation: "Vinícius Júnior struck in the 59th minute to win Real Madrid's 14th European Cup.", category: "UEFA Champions League" },
+  { id: "sync-ucl-3", sport: "Football", difficulty: "Medium", year: 2005, question: "Which club overcame a 3-0 halftime deficit to win the 2005 Champions League final in Istanbul?", options: ["Liverpool", "AC Milan", "Juventus", "Chelsea"], answer: 0, explanation: "Steven Gerrard inspired Liverpool's 3-3 comeback before winning 3-2 on penalties.", category: "UEFA Champions League" },
+  { id: "sync-ucl-4", sport: "Football", difficulty: "Hard", year: 2014, question: "Who scored the 92:48 stoppage-time header for Real Madrid in the 2014 Champions League final against Atlético Madrid?", options: ["Sergio Ramos", "Cristiano Ronaldo", "Gareth Bale", "Ángel Di María"], answer: 0, explanation: "Sergio Ramos forced extra time where Real Madrid went on to win 4-1 for 'La Décima'.", category: "UEFA Champions League" },
+  { id: "sync-pl-1", sport: "Football", difficulty: "Medium", year: 2016, question: "Which manager led Leicester City to a fairytale 5000-1 Premier League title in 2015-16?", options: ["Claudio Ranieri", "Nigel Pearson", "Craig Shakespeare", "Brendan Rodgers"], answer: 0, explanation: "Claudio Ranieri guided Leicester to the title with 81 points.", category: "Premier League" },
+  { id: "sync-pl-2", sport: "Football", difficulty: "Easy", year: 2023, question: "Who broke the Premier League single-season scoring record with 36 goals in 2022-23?", options: ["Erling Haaland", "Harry Kane", "Mohamed Salah", "Alan Shearer"], answer: 0, explanation: "Erling Haaland scored 36 Premier League goals in his debut season for Manchester City.", category: "Premier League" },
+  { id: "sync-10", sport: "Football", difficulty: "Medium", year: 2004, question: "Which country won the UEFA Euro 2004 in a legendary upset?", options: ["Greece", "Portugal", "Czech Republic", "France"], answer: 0, explanation: "Greece defeated hosts Portugal 1-0 in Lisbon in 2004.", category: "UEFA European Championship" },
+  { id: "sync-15", sport: "Football", difficulty: "Medium", year: 2016, question: "Which nation won the UEFA Euro 2016 championship by defeating hosts France?", options: ["Portugal", "Spain", "Germany", "Italy"], answer: 0, explanation: "Portugal defeated France 1-0 in extra time at Stade de France.", category: "UEFA European Championship" },
 
-  // Hard
-  { id: "sync-h1", sport: "Cricket", difficulty: "Hard", year: 1999, question: "Who was the Man of the Match in the 1999 ICC Cricket World Cup Final at Lord's?", options: ["Shane Warne", "Glenn McGrath", "Adam Gilchrist", "Steve Waugh"], answer: 0, explanation: "Shane Warne took 4 for 33 as Australia bowled Pakistan out for 132." },
-  { id: "sync-c-t20", sport: "Cricket", difficulty: "Hard", year: 2016, question: "Who hit 4 consecutive sixes off Ben Stokes in the final over of the 2016 ICC Men's T20 World Cup Final?", options: ["Carlos Brathwaite", "Marlon Samuels", "Chris Gayle", "Andre Russell"], answer: 0, explanation: "Carlos Brathwaite powered West Indies to victory with 4 consecutive sixes at Eden Gardens." },
-  { id: "sync-h2", sport: "Football", difficulty: "Hard", year: 2010, question: "Which referee officiated the 2010 FIFA World Cup Final, issuing 14 yellow cards?", options: ["Howard Webb", "Pierluigi Collina", "Nicola Rizzoli", "Massimo Busacca"], answer: 0, explanation: "English referee Howard Webb refereed Spain vs Netherlands in Johannesburg." },
-  { id: "sync-ucl-4", sport: "Football", difficulty: "Hard", year: 2014, question: "Who scored the 92:48 stoppage-time header for Real Madrid in the 2014 Champions League final against Atlético Madrid?", options: ["Sergio Ramos", "Cristiano Ronaldo", "Gareth Bale", "Ángel Di María"], answer: 0, explanation: "Sergio Ramos forced extra time where Real Madrid went on to win 4-1 for 'La Décima'." },
-  { id: "sync-h3", sport: "Basketball", difficulty: "Hard", year: 1995, question: "Which player scored 8 points in 9 seconds in Game 1 of the 1995 Eastern Conference Semifinals?", options: ["Reggie Miller", "Rik Smits", "Mark Jackson", "Dale Davis"], answer: 0, explanation: "Reggie Miller led the Indiana Pacers to a shock comeback at Madison Square Garden." },
-  { id: "sync-nba-5", sport: "Basketball", difficulty: "Hard", year: 2023, question: "Which player won the 2023 NBA Finals MVP after leading Denver to their first title in franchise history?", options: ["Nikola Jokić", "Jamal Murray", "Aaron Gordon", "Jimmy Butler"], answer: 0, explanation: "Nikola Jokić averaged 30.2 points, 14.0 rebounds, and 7.2 assists in the Finals." },
-  { id: "sync-h4", sport: "Formula 1", difficulty: "Hard", year: 2008, question: "Who won the 2008 Italian Grand Prix at Monza for Toro Rosso, becoming the youngest winner at the time?", options: ["Sebastian Vettel", "Lewis Hamilton", "Fernando Alonso", "Robert Kubica"], answer: 0, explanation: "21-year-old Sebastian Vettel scored a sensational wet-weather win." },
-  { id: "sync-f1-2", sport: "Formula 1", difficulty: "Hard", year: 1993, question: "Who holds the record for the most Monaco Grand Prix victories with 6 career wins?", options: ["Ayrton Senna", "Graham Hill", "Michael Schumacher", "Alain Prost"], answer: 0, explanation: "Ayrton Senna won in Monaco in 1987, 1989, 1990, 1991, 1992, and 1993." },
-  { id: "sync-hw", sport: "WWE/WWF", difficulty: "Hard", year: 2003, question: "At which WrestleMania did 'Stone Cold' Steve Austin face The Rock in their final trilogy match?", options: ["WrestleMania XIX", "WrestleMania X-Seven", "WrestleMania XV", "WrestleMania XX"], answer: 0, explanation: "The Rock defeated Austin at WrestleMania XIX in Seattle in Austin's final match for 19 years." },
-  { id: "sync-hu", sport: "UFC", difficulty: "Hard", year: 2015, question: "At which UFC event in Melbourne did Holly Holm knock out undefeated champion Ronda Rousey?", options: ["UFC 193", "UFC 190", "UFC 194", "UFC 200"], answer: 0, explanation: "Holly Holm landed a head kick at UFC 193 in November 2015 in Melbourne." },
+  // Basketball
+  { id: "sync-3", sport: "Basketball", difficulty: "Easy", year: 2023, question: "Which player became the NBA's all-time scoring leader in 2023, surpassing Kareem Abdul-Jabbar?", options: ["LeBron James", "Kareem Abdul-Jabbar", "Michael Jordan", "Kobe Bryant"], answer: 0, explanation: "LeBron James passed Kareem's record in February 2023.", category: "NBA Regular Season & All-Star" },
+  { id: "sync-nba-1", sport: "Basketball", difficulty: "Easy", year: 2016, question: "Which team came back from a 3-1 deficit to win the 2016 NBA Finals?", options: ["Cleveland Cavaliers", "Golden State Warriors", "Oklahoma City Thunder", "Toronto Raptors"], answer: 0, explanation: "LeBron James and the Cavaliers defeated the 73-9 Warriors in Game 7.", category: "NBA Finals & Playoffs" },
+  { id: "sync-nba-2", sport: "Basketball", difficulty: "Medium", year: 2021, question: "Who won the 2021 NBA Finals MVP after scoring 50 points in Game 6 for the Milwaukee Bucks?", options: ["Giannis Antetokounmpo", "Khris Middleton", "Jrue Holiday", "Devin Booker"], answer: 0, explanation: "Giannis Antetokounmpo recorded 50 points, 14 rebounds, and 5 blocks in Game 6.", category: "NBA Finals & Playoffs" },
+  { id: "sync-nba-3", sport: "Basketball", difficulty: "Easy", year: 2024, question: "Which team won the 2024 NBA Championship by defeating the Dallas Mavericks 4-1?", options: ["Boston Celtics", "Dallas Mavericks", "Denver Nuggets", "Minnesota Timberwolves"], answer: 0, explanation: "Jaylen Brown was named Finals MVP as the Celtics won their record 18th NBA title.", category: "NBA Finals & Playoffs" },
+  { id: "sync-17", sport: "Basketball", difficulty: "Medium", year: 2004, question: "Which country defeated Team USA in men's basketball at the 2004 Athens Olympics?", options: ["Argentina", "Lithuania", "Spain", "Italy"], answer: 0, explanation: "Manu Ginobili led Argentina to an 89-81 victory on the way to Olympic gold.", category: "Olympic Men's Basketball" },
 
-  // Legendary
-  { id: "sync-l1", sport: "Cricket", difficulty: "Legendary", year: 2007, question: "Who was the only bowler to take 4 wickets in 4 consecutive balls in a Men's World Cup match?", options: ["Lasith Malinga", "Chaminda Vaas", "Wasim Akram", "Brett Lee"], answer: 0, explanation: "Lasith Malinga took 4 in 4 against South Africa in the 2007 World Cup in Guyana." },
-  { id: "sync-l2", sport: "Football", difficulty: "Legendary", year: 2010, question: "Who is the only player to score hat-tricks in the Premier League, Champions League, and FA Cup in the 2009-10 season?", options: ["Yossi Benayoun", "Fernando Torres", "Didier Drogba", "Wayne Rooney"], answer: 0, explanation: "Yossi Benayoun achieved this rare treble of hat-tricks playing for Liverpool in 2009-10." },
-  { id: "sync-l3", sport: "Basketball", difficulty: "Legendary", year: 1998, question: "Which team drafted Dirk Nowitzki with the 9th overall pick in 1998 before trading him to Dallas?", options: ["Milwaukee Bucks", "Boston Celtics", "Denver Nuggets", "Golden State Warriors"], answer: 0, explanation: "The Bucks drafted Nowitzki in 1998 and traded him on draft night for Robert Traylor." },
-  { id: "sync-l5", sport: "Formula 1", difficulty: "Legendary", year: 2007, question: "Who was the last driver to win the Formula 1 World Drivers' Championship driving for Ferrari?", options: ["Kimi Räikkönen", "Felipe Massa", "Fernando Alonso", "Sebastian Vettel"], answer: 0, explanation: "Kimi Räikkönen won the 2007 Drivers' Championship for Ferrari by one point in Brazil." },
-  { id: "sync-lw", sport: "WWE/WWF", difficulty: "Legendary", year: 1988, question: "Who won the first-ever Men's Royal Rumble match in January 1988 in Hamilton, Ontario?", options: ["'Hacksaw' Jim Duggan", "One Man Gang", "Bret Hart", "Don Muraco"], answer: 0, explanation: "Jim Duggan eliminated One Man Gang to win the inaugural 1988 Royal Rumble." },
-  { id: "sync-lu", sport: "UFC", difficulty: "Legendary", year: 1993, question: "Who won the tournament at UFC 1 in Denver in November 1993 by submitting three opponents in one night?", options: ["Royce Gracie", "Ken Shamrock", "Gerard Gordeau", "Art Jimmerson"], answer: 0, explanation: "Royce Gracie won the inaugural UFC 1 tournament in 1993 using Brazilian Jiu-Jitsu." },
+  // Formula 1
+  { id: "sync-4", sport: "Formula 1", difficulty: "Easy", year: 2023, question: "Who won the 2023 Formula 1 World Drivers' Championship with 19 race wins?", options: ["Max Verstappen", "Lewis Hamilton", "Sergio Pérez", "Fernando Alonso"], answer: 0, explanation: "Max Verstappen won 19 of 22 races in 2023.", category: "World Drivers' Championship" },
+  { id: "sync-f1-1", sport: "Formula 1", difficulty: "Easy", year: 2021, question: "Who won his first Formula 1 World Championship on the final lap of the 2021 Abu Dhabi Grand Prix?", options: ["Max Verstappen", "Lewis Hamilton", "Valtteri Bottas", "Lando Norris"], answer: 0, explanation: "Verstappen overtook Hamilton on lap 58 following a late safety car restart.", category: "Abu Dhabi Grand Prix" },
+  { id: "sync-f1-2", sport: "Formula 1", difficulty: "Hard", year: 1993, question: "Who holds the record for the most Monaco Grand Prix victories with 6 career wins?", options: ["Ayrton Senna", "Graham Hill", "Michael Schumacher", "Alain Prost"], answer: 0, explanation: "Ayrton Senna won in Monaco in 1987, 1989, 1990, 1991, 1992, and 1993.", category: "Monaco Grand Prix" },
+  { id: "sync-f1-3", sport: "Formula 1", difficulty: "Easy", year: 2024, question: "Which driver won the 2024 Monaco Grand Prix from pole position for Scuderia Ferrari?", options: ["Charles Leclerc", "Oscar Piastri", "Carlos Sainz", "Lando Norris"], answer: 0, explanation: "Charles Leclerc became the first Monegasque driver to win his home race since 1931.", category: "Monaco Grand Prix" },
+  { id: "sync-h4", sport: "Formula 1", difficulty: "Hard", year: 2008, question: "Who won the 2008 Italian Grand Prix at Monza for Toro Rosso, becoming the youngest winner at the time?", options: ["Sebastian Vettel", "Lewis Hamilton", "Fernando Alonso", "Robert Kubica"], answer: 0, explanation: "21-year-old Sebastian Vettel scored a sensational wet-weather win.", category: "Italian Grand Prix (Monza)" },
+
+  // WWE/WWF
+  { id: "sync-5", sport: "WWE/WWF", difficulty: "Easy", year: 2014, question: "Who ended The Undertaker's 21-0 undefeated streak at WrestleMania XXX?", options: ["Brock Lesnar", "Roman Reigns", "John Cena", "Triple H"], answer: 0, explanation: "Brock Lesnar defeated The Undertaker at WrestleMania XXX in New Orleans in 2014.", category: "WrestleMania" },
+  { id: "sync-wwe-1", sport: "WWE/WWF", difficulty: "Easy", year: 2024, question: "Who defeated Roman Reigns in the main event of WrestleMania XL (40) to win the Undisputed WWE Championship?", options: ["Cody Rhodes", "The Rock", "Seth Rollins", "CM Punk"], answer: 0, explanation: "Cody Rhodes finished his story in a Bloodline Rules match at WrestleMania 40 in Philadelphia.", category: "WrestleMania" },
+  { id: "sync-wwe-2", sport: "WWE/WWF", difficulty: "Easy", year: 2001, question: "Who holds the record for winning the most Men's Royal Rumble matches in WWE history (3 wins)?", options: ["Stone Cold Steve Austin", "Hulk Hogan", "Shawn Michaels", "John Cena"], answer: 0, explanation: "Steve Austin won the Royal Rumble in 1997, 1998, and 2001.", category: "Royal Rumble" },
+  { id: "sync-w2", sport: "WWE/WWF", difficulty: "Medium", year: 1998, question: "Which match featured Mankind being thrown off the top of Hell in a Cell by The Undertaker?", options: ["King of the Ring 1998", "WrestleMania XIV", "SummerSlam 1998", "Royal Rumble 1999"], answer: 0, explanation: "Mick Foley fell from the cell structure at King of the Ring in Pittsburgh in June 1998.", category: "Attitude Era & World Championships" },
+
+  // UFC
+  { id: "sync-6", sport: "UFC", difficulty: "Easy", year: 2019, question: "Who scored the fastest knockout in UFC history (5 seconds) against Ben Askren?", options: ["Jorge Masvidal", "Conor McGregor", "Francis Ngannou", "Duane Ludwig"], answer: 0, explanation: "Jorge Masvidal landed a flying knee 5 seconds into UFC 239 in 2019.", category: "UFC Numbered PPVs" },
+  { id: "sync-ufc-1", sport: "UFC", difficulty: "Easy", year: 2015, question: "Who knocked out Jose Aldo in 13 seconds to win the featherweight title at UFC 194?", options: ["Conor McGregor", "Max Holloway", "Chad Mendes", "Frankie Edgar"], answer: 0, explanation: "Conor McGregor landed a counter left hook 13 seconds into the 1st round in Las Vegas.", category: "UFC Numbered PPVs" },
+  { id: "sync-ufc-3", sport: "UFC", difficulty: "Easy", year: 2024, question: "Who scored a dramatic knockout at 4:59 of round 5 to win the BMF title at UFC 300?", options: ["Max Holloway", "Justin Gaethje", "Dustin Poirier", "Charles Oliveira"], answer: 0, explanation: "Max Holloway pointed to the center and knocked out Justin Gaethje with one second remaining.", category: "UFC Numbered PPVs" },
+  { id: "sync-u2", sport: "UFC", difficulty: "Medium", year: 2018, question: "Who submitted Conor McGregor in the 4th round at UFC 229 in Las Vegas?", options: ["Khabib Nurmagomedov", "Nate Diaz", "Dustin Poirier", "Justin Gaethje"], answer: 0, explanation: "Khabib Nurmagomedov retained his lightweight championship at UFC 229 in October 2018.", category: "UFC Numbered PPVs" },
 ];
 
 /**
- * Sync builder used for fast client/sprint fallback if offline
+ * Sync builder used for fast client/sprint fallback if offline.
+ * Never duplicates questions inside the returned set.
  */
 export function buildGame(options: SelectionOptions): Question[] {
-  const { sport, difficulty, count, exclude } = options;
+  const { sport, difficulty, count, category, exclude } = options;
+  const isTournamentSpecific = Boolean(
+    category &&
+    !category.startsWith("All") &&
+    category !== "All Tournaments" &&
+    category !== "All Events" &&
+    category !== "All Grand Prix"
+  );
+
   let pool = SYNC_FALLBACK_POOL.filter((q) => {
     if (sport && sport !== "All Sports" && q.sport !== sport) return false;
+    if (isTournamentSpecific && q.category && q.category !== category) return false;
     if (difficulty && difficulty !== "Mixed" && q.difficulty !== difficulty) return false;
     if (exclude?.has(q.id)) return false;
     return true;
   });
 
-  if (pool.length === 0) {
-    // If strict difficulty match has 0 items, keep sport strict! Never cross-contaminate sports!
-    pool = SYNC_FALLBACK_POOL.filter((q) => {
+  if (pool.length < count) {
+    // Relax difficulty filter if needed, keeping sport and tournament strict
+    const relaxed = SYNC_FALLBACK_POOL.filter((q) => {
       if (sport && sport !== "All Sports" && q.sport !== sport) return false;
+      if (isTournamentSpecific && q.category && q.category !== category) return false;
+      if (pool.some((p) => p.id === q.id)) return false;
       return true;
     });
-
-    // If still 0 (e.g. rare combination and all sports), use full pool
-    if (pool.length === 0) {
-      pool = [...SYNC_FALLBACK_POOL];
-    }
+    pool = [...pool, ...relaxed];
   }
 
-  // Duplicate elements with unique IDs if more items are requested than fallback pool size
-  const result: Question[] = [];
-  let counter = 1;
-  while (result.length < count) {
-    for (const item of pool) {
-      if (result.length >= count) break;
-      const copy = { ...item, id: `${item.id}-${counter++}` };
-      result.push(shuffleQuestionOptions(copy));
-    }
+  if (pool.length < count && isTournamentSpecific) {
+    // If tournament pool exhausted, pull remaining questions from the exact same sport
+    const sameSport = SYNC_FALLBACK_POOL.filter((q) => {
+      if (sport && sport !== "All Sports" && q.sport !== sport) return false;
+      if (pool.some((p) => p.id === q.id)) return false;
+      return true;
+    });
+    pool = [...pool, ...sameSport];
   }
 
-  return shuffle(result);
+  if (pool.length === 0) {
+    pool = [...SYNC_FALLBACK_POOL];
+  }
+
+  const randomized = pool.map((q) => shuffleQuestionOptions(q));
+  return shuffle(randomized).slice(0, count);
 }

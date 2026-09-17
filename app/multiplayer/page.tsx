@@ -707,23 +707,26 @@ export default function MultiplayerPage() {
     setCodeInput(code);
     setIsHost(true);
 
+    const activeTournament =
+      selectedTournament !== "All Tournaments" &&
+      selectedTournament !== "All Events" &&
+      selectedTournament !== "All Grand Prix" &&
+      !selectedTournament.startsWith("All")
+        ? selectedTournament
+        : undefined;
+
     let qs: Question[] = [];
     try {
       const seenIds = Array.from(getPersistentSeenIds()).slice(-30);
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(15000),
         body: JSON.stringify({
           sport: selectedSport,
           difficulty: selectedDifficulty,
           count: selectedCount,
-          category:
-            selectedTournament !== "All Tournaments" &&
-            selectedTournament !== "All Events" &&
-            selectedTournament !== "All Grand Prix"
-              ? selectedTournament
-              : undefined,
+          category: activeTournament,
           mode: "multiplayer",
           excludeStems: seenIds,
         }),
@@ -733,10 +736,10 @@ export default function MultiplayerPage() {
         qs = data.questions;
         markQuestionsSeen(qs.map((q) => q.question.slice(0, 45)));
       } else {
-        qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
+        qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount, category: activeTournament });
       }
     } catch {
-      qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount });
+      qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount, category: activeTournament });
     }
 
     setQuestions(qs);
@@ -1139,8 +1142,10 @@ export default function MultiplayerPage() {
                 className="arena-input text-sm cursor-pointer"
                 value={selectedSport}
                 onChange={(e) => {
-                  setSelectedSport(e.target.value as Sport | "All Sports");
-                  setSelectedTournament("All Tournaments");
+                  const newSport = e.target.value as Sport | "All Sports";
+                  setSelectedSport(newSport);
+                  const defaultT = newSport === "All Sports" ? "All Tournaments" : (TOURNAMENTS_BY_SPORT[newSport]?.[0] || "All Tournaments");
+                  setSelectedTournament(defaultT);
                   audio.tap();
                 }}
               >

@@ -204,6 +204,7 @@ function PlayContent() {
               data-active={sport === "All Sports" ? "true" : undefined}
               onClick={() => {
                 setSport("All Sports");
+                setSelectedTournament("All Tournaments");
                 audio.select();
               }}
             >
@@ -226,6 +227,7 @@ function PlayContent() {
                   data-active={active ? "true" : undefined}
                   onClick={() => {
                     setSport(s);
+                    setSelectedTournament(TOURNAMENTS_BY_SPORT[s]?.[0] || "All Tournaments");
                     audio.select();
                   }}
                 >

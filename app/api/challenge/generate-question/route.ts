@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       });
 
       for (const raw of rawBatch) {
-        const validation = validateQuestion(raw);
+        const validation = validateQuestion(raw, category);
         if (validation.valid && validation.question) {
           validatedQuestion = validation.question;
           break;

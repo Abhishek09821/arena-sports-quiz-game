@@ -103,7 +103,7 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
     for (const raw of rawBatch) {
       if (collectedQuestions.length >= count) break;
 
-      const validation = validateQuestion(raw);
+      const validation = validateQuestion(raw, category);
       if (!validation.valid || !validation.question) {
         continue;
       }
@@ -134,10 +134,11 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
       count: count - collectedQuestions.length,
       category,
       mode: normalizedMode,
+      excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
     });
     for (const raw of rawTopUp) {
       if (collectedQuestions.length >= count) break;
-      const v = validateQuestion(raw);
+      const v = validateQuestion(raw, category);
       if (v.valid && v.question && !seenRoundHashes.has(v.question.questionHash)) {
         seenRoundHashes.add(v.question.questionHash);
         collectedQuestions.push(v.question);

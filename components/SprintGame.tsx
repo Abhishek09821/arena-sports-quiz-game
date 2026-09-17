@@ -118,11 +118,19 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
     }
   }, [sprintSport, sprintDifficulty, sprintTournament, appendQuestions]);
 
-  // Initialize sprint with AI generated 25 questions via Grok
+  // Initialize sprint with AI generated 25 questions via Groq
   const startSprint = useCallback(async () => {
     audio.unlock();
     audio.click();
     setIsGenerating(true);
+
+    const activeTournament =
+      sprintTournament !== "All Tournaments" &&
+      sprintTournament !== "All Events" &&
+      sprintTournament !== "All Grand Prix" &&
+      !sprintTournament.startsWith("All")
+        ? sprintTournament
+        : undefined;
 
     try {
       const seenIds = Array.from(getPersistentSeenIds()).slice(-30);
@@ -133,12 +141,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           sport: sprintSport,
           difficulty: sprintDifficulty,
           count: 25,
-          category:
-            sprintTournament !== "All Tournaments" &&
-            sprintTournament !== "All Events" &&
-            sprintTournament !== "All Grand Prix"
-              ? sprintTournament
-              : undefined,
+          category: activeTournament,
           mode: "sprint",
           excludeStems: seenIds,
         }),
@@ -153,7 +156,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
         markQuestionsSeen(newStems);
       } else {
         // Resilient fallback if provider rate limits
-        pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25 });
+        pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25, category: activeTournament });
       }
 
       setSprintQuestions(pool);
@@ -161,7 +164,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       // Start 3-2-1 countdown
       setCountdown(3);
     } catch {
-      const fallbackPool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25 });
+      const fallbackPool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25, category: activeTournament });
       setSprintQuestions(fallbackPool);
       setIsGenerating(false);
       setCountdown(3);
@@ -249,10 +252,18 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           } else {
             // Reached the end of the loaded queue!
             // INSTANTLY provide reserve questions so the UI never pauses or gets stuck:
+            const emergencyTournament =
+              sprintTournament !== "All Tournaments" &&
+              sprintTournament !== "All Events" &&
+              sprintTournament !== "All Grand Prix" &&
+              !sprintTournament.startsWith("All")
+                ? sprintTournament
+                : undefined;
             const emergencyBatch = buildGame({
               sport: sprintSport,
               difficulty: sprintDifficulty,
               count: 10,
+              category: emergencyTournament,
             });
             appendQuestions(emergencyBatch);
             next();
@@ -262,7 +273,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
         }
       }, 220);
     },
-    [locked, finished, choose, sprintTimeLeft, next, incrementSprintAttempts, fetchMoreQuestions, sprintSport, sprintDifficulty, appendQuestions]
+    [locked, finished, choose, sprintTimeLeft, next, incrementSprintAttempts, fetchMoreQuestions, sprintSport, sprintDifficulty, sprintTournament, appendQuestions]
   );
 
   // Watchdog failsafe: Never let sprint get frozen on a locked question
@@ -274,10 +285,18 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
         if (s.index < s.questions.length - 1) {
           next();
         } else {
+          const emergencyTournament =
+            sprintTournament !== "All Tournaments" &&
+            sprintTournament !== "All Events" &&
+            sprintTournament !== "All Grand Prix" &&
+            !sprintTournament.startsWith("All")
+              ? sprintTournament
+              : undefined;
           const emergencyBatch = buildGame({
             sport: sprintSport,
             difficulty: sprintDifficulty,
             count: 10,
+            category: emergencyTournament,
           });
           appendQuestions(emergencyBatch);
           next();
@@ -285,7 +304,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
       }
     }, 450);
     return () => clearTimeout(failsafe);
-  }, [locked, gameStarted, finished, sprintTimeLeft, next, appendQuestions, sprintSport, sprintDifficulty]);
+  }, [locked, gameStarted, finished, sprintTimeLeft, next, appendQuestions, sprintSport, sprintDifficulty, sprintTournament]);
 
   // Keyboard navigation for Sprint mode (1-4 / A-D for rapid-fire answers, Enter/Space to start)
   useEffect(() => {
@@ -372,8 +391,10 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
               className="arena-input text-sm cursor-pointer"
               value={sprintSport}
               onChange={(e) => {
-                setSprintSport(e.target.value as Sport | "All Sports");
-                setSprintTournament("All Tournaments");
+                const newSport = e.target.value as Sport | "All Sports";
+                setSprintSport(newSport);
+                const defaultT = newSport === "All Sports" ? "All Tournaments" : (TOURNAMENTS_BY_SPORT[newSport]?.[0] || "All Tournaments");
+                setSprintTournament(defaultT);
                 audio.tap();
               }}
             >

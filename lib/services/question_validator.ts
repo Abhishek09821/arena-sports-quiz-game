@@ -88,7 +88,7 @@ export function calculateQuestionHash(questionText: string, options: string[]): 
  * - Non-empty question and explanation
  * - Plausible distractor check (options cannot be identical or single non-sense characters)
  */
-export function validateQuestion(raw: unknown): ValidationResult {
+export function validateQuestion(raw: unknown, targetTournament?: string): ValidationResult {
   const errors: string[] = [];
 
   if (!raw || typeof raw !== "object") {
@@ -255,16 +255,49 @@ export function validateQuestion(raw: unknown): ValidationResult {
     ? q.explanation.trim()
     : `${answerText} is the correct answer.`;
 
-  // 7. Year & Category (Strictly 1975 to 2026)
+  // 7. Year (Strictly 1975 to 2026)
   let year = typeof q.year === "number" && !isNaN(q.year) ? Math.floor(q.year) : 2024;
   if (year < 1975 || year > 2026) {
-    // Flag error if year outside strict 1975-2026 window
     errors.push(`Question year (${year}) is outside strict 1975-2026 window. All trivia must be from 1975 to 2026.`);
   }
 
-  const category = typeof q.category === "string" && q.category.trim().length > 0
+  // 8. Tournament Category Alignment Verification
+  let finalCategory = typeof q.category === "string" && q.category.trim().length > 0
     ? q.category.trim()
     : `${resolvedSport} Trivia`;
+
+  if (targetTournament && !targetTournament.startsWith("All") && targetTournament !== "All Tournaments" && targetTournament !== "All Events" && targetTournament !== "All Grand Prix") {
+    finalCategory = targetTournament;
+    const combinedContent = `${q.question || ""} ${(q.options || []).join(" ")} ${q.explanation || ""}`.toLowerCase();
+    const tLower = targetTournament.toLowerCase();
+
+    // Check for explicit cross-tournament contaminants
+    if (tLower.includes("ipl") || tLower.includes("indian premier league")) {
+      if (/\b(world cup|ashes|champions trophy|test match|odi world cup)\b/i.test(combinedContent) && !combinedContent.includes("ipl")) {
+        errors.push(`Question rejected: Contains off-tournament references while IPL was specified.`);
+      }
+    } else if (tLower.includes("champions league") || tLower.includes("ucl")) {
+      if (/\b(fifa world cup|euro \d{4}|copa am[eé]rica|premier league title)\b/i.test(combinedContent) && !combinedContent.includes("champions league")) {
+        errors.push(`Question rejected: Contains off-tournament references while UEFA Champions League was specified.`);
+      }
+    } else if (tLower.includes("ashes")) {
+      if (/\b(ipl|world cup|t20|super over|white ball)\b/i.test(combinedContent) && !combinedContent.includes("ashes")) {
+        errors.push(`Question rejected: Contains off-tournament references while The Ashes was specified.`);
+      }
+    } else if (tLower.includes("wrestlemania")) {
+      if (/\b(summerslam|royal rumble|survivor series)\b/i.test(combinedContent) && !combinedContent.includes("wrestlemania")) {
+        errors.push(`Question rejected: Contains off-event references while WrestleMania was specified.`);
+      }
+    } else if (tLower.includes("royal rumble")) {
+      if (/\b(wrestlemania|summerslam|survivor series)\b/i.test(combinedContent) && !combinedContent.includes("rumble")) {
+        errors.push(`Question rejected: Contains off-event references while Royal Rumble was specified.`);
+      }
+    } else if (tLower.includes("monaco")) {
+      if (/\b(silverstone|monza|abu dhabi|suzuka|spa)\b/i.test(combinedContent) && !combinedContent.includes("monaco")) {
+        errors.push(`Question rejected: Contains off-track references while Monaco Grand Prix was specified.`);
+      }
+    }
+  }
 
   if (errors.length > 0) {
     return { valid: false, errors };
@@ -287,7 +320,7 @@ export function validateQuestion(raw: unknown): ValidationResult {
       id: q.id || `ai-${questionHash}`,
       sport: resolvedSport,
       difficulty: resolvedDiff,
-      category,
+      category: finalCategory,
       year,
       question: questionText,
       options: finalOptions,
