@@ -42,6 +42,7 @@ import { audio } from "@/lib/audio";
 import { validateQuestions, parseCSV } from "@/lib/validation";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/components/AuthContext";
+import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 
 type BuilderTab = "ai" | "play_code" | "saved" | "manual" | "file";
 
@@ -190,18 +191,38 @@ function ChallengeContent() {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const qList: Question[] = (data.questions || []).map((q: any, i: number) => ({
-        id: q.id || `chal-q-${i}`,
-        sport: q.sport || data.challenge.sport || "All Sports",
-        difficulty: q.difficulty || data.challenge.difficulty || "Mixed",
-        year: q.year || 2024,
-        question: q.question_text || q.question,
-        options: Array.isArray(q.options)
-          ? (q.options as [string, string, string, string])
-          : [q.option_a, q.option_b, q.option_c, q.option_d],
-        answer: typeof q.correct_option === "number" ? q.correct_option : (typeof q.answer === "number" ? q.answer : 0),
-        explanation: q.explanation || "",
-      }));
+      const qList: Question[] = (data.questions || []).map((q: any, i: number) => {
+        const rawOpts = Array.isArray(q.options)
+          ? q.options
+          : [q.option_a, q.option_b, q.option_c, q.option_d];
+        const options: [string, string, string, string] = [
+          rawOpts[0] || "",
+          rawOpts[1] || "",
+          rawOpts[2] || "",
+          rawOpts[3] || "",
+        ];
+
+        let answer = typeof q.correct_option === "number" ? q.correct_option : (typeof q.answer === "number" ? q.answer : 0);
+        // Resiliently resolve correct answer index by matching against correct_answer / correctAnswerText
+        const correctText = (q.correct_answer || q.correctAnswerText || "").trim().toLowerCase();
+        if (correctText) {
+          const match = options.findIndex((opt) => (opt || "").trim().toLowerCase() === correctText);
+          if (match !== -1) {
+            answer = match;
+          }
+        }
+
+        return {
+          id: q.id || `chal-q-${i}`,
+          sport: q.sport || data.challenge.sport || "All Sports",
+          difficulty: q.difficulty || data.challenge.difficulty || "Mixed",
+          year: q.year || 2024,
+          question: q.question_text || q.question,
+          options,
+          answer,
+          explanation: q.explanation || "",
+        };
+      });
 
       setLoadedChallenge(data.challenge);
       setLoadedQuestions(qList);
@@ -217,6 +238,7 @@ function ChallengeContent() {
   const playLoadedChallenge = () => {
     if (!loadedChallenge || loadedQuestions.length === 0) return;
     audio.unlock();
+    recordQuestionsAsSeen(loadedQuestions);
     useQuizStore.getState().start(loadedQuestions, {
       sport: (loadedChallenge.sport as Sport) || "All Sports",
       difficulty: (loadedChallenge.difficulty as Difficulty) || "Mixed",
@@ -229,6 +251,7 @@ function ChallengeContent() {
 
   const playSavedChallengeDirectly = (item: SavedChallenge) => {
     audio.unlock();
+    recordQuestionsAsSeen(item.questions);
     useQuizStore.getState().start(item.questions, {
       sport: (item.sport as Sport) || "All Sports",
       difficulty: (item.difficulty as Difficulty) || "Mixed",
@@ -266,6 +289,8 @@ function ChallengeContent() {
           difficulty: aiDifficulty,
           category: activeTournament,
           count: 10,
+          excludeStems: getSeenStems(150),
+          excludeAnswers: getSeenAnswers(80),
         }),
       });
 
@@ -274,29 +299,10 @@ function ChallengeContent() {
         throw new Error(data.error || "Failed to generate 10 questions with Gemini AI.");
       }
 
-      // Deduplicate by stem to guarantee 10 unique non-repeating questions
-      const seenStems = new Set<string>();
-      const unique10: Question[] = [];
-      for (const q of data.questions) {
-        const norm = (q.question || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 35);
-        if (!seenStems.has(norm)) {
-          seenStems.add(norm);
-          unique10.push(q);
-        }
-        if (unique10.length >= 10) break;
-      }
-
-      // If deduplication yielded < 10, backfill with remaining
-      for (const q of data.questions) {
-        if (!unique10.some((u) => u.id === q.id || u.question === q.question)) {
-          unique10.push(q);
-        }
-        if (unique10.length >= 10) break;
-      }
-
-      const final10 = unique10.slice(0, 10);
+      const final10 = (data.questions as Question[]).slice(0, 10);
       setQuestions(final10);
       setChallengeTitle(`${aiSport} ${activeTournament ? activeTournament : "Arena"} Challenge`);
+      recordQuestionsAsSeen(final10);
       audio.correct();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to generate 10 questions with Gemini");
@@ -325,8 +331,14 @@ function ChallengeContent() {
           sport: aiSport,
           difficulty: aiDifficulty,
           category: activeTournament,
-          excludeStems: questions.map((q) => q.question.slice(0, 40)),
-          excludeAnswers: questions.map((q) => q.options[q.answer]),
+          excludeStems: [
+            ...getSeenStems(150),
+            ...questions.map((q) => q.question.slice(0, 45)),
+          ],
+          excludeAnswers: [
+            ...getSeenAnswers(80),
+            ...questions.map((q) => q.options[q.answer]),
+          ],
         }),
       });
 
@@ -347,16 +359,12 @@ function ChallengeContent() {
         category: data.question.category,
       };
 
-      // Ensure no duplicate in set
-      const normNew = newQ.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
-      if (questions.some((q) => q.question.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30) === normNew)) {
-        throw new Error("Received a duplicate question. Please try generating again.");
-      }
-
       setQuestions((prev) => [...prev, newQ]);
+      recordQuestionsAsSeen([newQ]);
       audio.correct();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Generation failed");
+      console.error("[Challenge Single Generation] Error:", err);
+      audio.wrong();
     } finally {
       setIsGenerating(false);
     }
@@ -376,7 +384,14 @@ function ChallengeContent() {
           sport: target.sport,
           difficulty: target.difficulty,
           category: target.category || (selectedTournament !== "All" ? selectedTournament : undefined),
-          excludeStems: questions.filter((_, i) => i !== index).map((q) => q.question.slice(0, 40)),
+          excludeStems: [
+            ...getSeenStems(150),
+            ...questions.filter((_, i) => i !== index).map((q) => q.question.slice(0, 45)),
+          ],
+          excludeAnswers: [
+            ...getSeenAnswers(80),
+            ...questions.filter((_, i) => i !== index).map((q) => q.options[q.answer]),
+          ],
         }),
       });
 
@@ -399,9 +414,11 @@ function ChallengeContent() {
         next[index] = updated;
         return next;
       });
+      recordQuestionsAsSeen([updated]);
       audio.correct();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Regeneration failed");
+      console.error("[Challenge Regenerate] Error:", err);
+      audio.wrong();
     } finally {
       setRegeneratingIndex(null);
     }
@@ -637,6 +654,7 @@ function ChallengeContent() {
       return;
     }
     audio.unlock();
+    recordQuestionsAsSeen(questions);
     useQuizStore.getState().start(questions, {
       sport: (questions[0]?.sport as Sport) || "All Sports",
       difficulty: "Mixed",

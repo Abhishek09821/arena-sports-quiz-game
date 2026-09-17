@@ -20,7 +20,8 @@ import Link from "next/link";
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/lib/supabase";
 import { audio } from "@/lib/audio";
-import { buildGame, getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
+import { buildGame } from "@/lib/quiz";
+import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
 
@@ -717,7 +718,8 @@ export default function MultiplayerPage() {
 
     let qs: Question[] = [];
     try {
-      const seenIds = Array.from(getPersistentSeenIds()).slice(-30);
+      const excludeStems = getSeenStems(150);
+      const excludeAnswers = getSeenAnswers(80);
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -728,13 +730,14 @@ export default function MultiplayerPage() {
           count: selectedCount,
           category: activeTournament,
           mode: "multiplayer",
-          excludeStems: seenIds,
+          excludeStems,
+          excludeAnswers,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
         qs = data.questions;
-        markQuestionsSeen(qs.map((q) => q.question.slice(0, 45)));
+        recordQuestionsAsSeen(qs);
       } else {
         qs = buildGame({ sport: selectedSport, difficulty: selectedDifficulty, count: selectedCount, category: activeTournament });
       }

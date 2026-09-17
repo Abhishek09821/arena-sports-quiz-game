@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateAIQuestions } from "@/lib/services/ai_question_generator";
 import { validateQuestion } from "@/lib/services/question_validator";
 import { randomizeQuestionOptions } from "@/lib/services/question_manager";
+import { auditCandidateQuestion, type DeckAuditContext } from "@/lib/services/deck_auditor";
 import { type Sport, type Difficulty } from "@/data/questions";
 
 export async function POST(req: Request) {
@@ -13,13 +14,21 @@ export async function POST(req: Request) {
     const excludeStems = Array.isArray(body.excludeStems) ? body.excludeStems : [];
     const excludeAnswers = Array.isArray(body.excludeAnswers) ? body.excludeAnswers : [];
 
-    // Generate single question with retry loop for resilience
-    let validatedQuestion = null;
+    const auditContext: DeckAuditContext = {
+      sport,
+      difficulty,
+      category,
+      excludeStems,
+      excludeAnswers,
+    };
+
+    // Generate single question with self-healing retry loop (max 5 attempts)
+    let certifiedQuestion = null;
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 5;
     let lastErrors: string[] = [];
 
-    while (!validatedQuestion && attempts < maxAttempts) {
+    while (!certifiedQuestion && attempts < maxAttempts) {
       attempts++;
       const rawBatch = await generateAIQuestions({
         sport,
@@ -33,16 +42,26 @@ export async function POST(req: Request) {
 
       for (const raw of rawBatch) {
         const validation = validateQuestion(raw, category);
-        if (validation.valid && validation.question) {
-          validatedQuestion = validation.question;
+        if (!validation.valid || !validation.question) {
+          lastErrors = validation.errors;
+          continue;
+        }
+
+        // Strict audit against builder questions and historical seen registry
+        const audit = auditCandidateQuestion(validation.question, [], auditContext);
+        if (audit.passed) {
+          certifiedQuestion = validation.question;
           break;
         } else {
-          lastErrors = validation.errors;
+          lastErrors = audit.reasons;
+          // Append rejected candidate to exclude lists for subsequent attempts
+          excludeStems.push(validation.question.question.slice(0, 45));
+          excludeAnswers.push(validation.question.correctAnswerText);
         }
       }
     }
 
-    if (!validatedQuestion) {
+    if (!certifiedQuestion) {
       return NextResponse.json(
         { error: "Validation failed after retries", details: lastErrors },
         { status: 422 }
@@ -50,7 +69,7 @@ export async function POST(req: Request) {
     }
 
     // Shuffle options & map answer
-    const randomized = randomizeQuestionOptions(validatedQuestion);
+    const randomized = randomizeQuestionOptions(certifiedQuestion);
 
     return NextResponse.json({
       success: true,

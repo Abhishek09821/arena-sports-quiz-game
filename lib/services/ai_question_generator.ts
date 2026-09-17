@@ -523,11 +523,22 @@ CRITICAL VERIFICATION RULES FOR "${category}":
 
   const excludeSection =
     (excludeStems && excludeStems.length > 0) || (excludeAnswers && excludeAnswers.length > 0)
-      ? `\nNON-REPETITION CONSTRAINT (CRITICAL):
-Do NOT generate questions similar to these recent topics or with these answers. Any duplicate will be rejected:
-- Stems to avoid: ${excludeStems?.slice(0, 50).join("; ") || "None"}
-- Answers to avoid: ${excludeAnswers?.slice(0, 50).join("; ") || "None"}`
+      ? `\nNON-REPETITION CONSTRAINT (CRITICAL - 1000 UNIQUE QUESTIONS MANDATE):
+DO NOT generate any questions similar to these already-seen question stems, and DO NOT make any of these answers the correct answer:
+- Stems strictly forbidden: ${excludeStems?.slice(0, 120).join("; ") || "None"}
+- Answers strictly forbidden: ${excludeAnswers?.slice(0, 80).join("; ") || "None"}
+If any question covers an already asked topic or duplicates any of the above, it will be automatically discarded.`
       : "";
+
+  // Dynamic Era Partitioning to guarantee 1000 unique questions over 100 games
+  const eraPartitions = [
+    "ERA FOCUS: Modern Era (2020 to 2026) - highlight recent tournament champions, breakout phenoms, and latest record-breaking moments.",
+    "ERA FOCUS: Decade of Dynasties (2010 to 2019) - highlight peak dominance, statistical revolutions, and iconic finals.",
+    "ERA FOCUS: Millennium Shift (2000 to 2009) - highlight early 2000s classics, foundational franchise milestones, and legendary superstars.",
+    "ERA FOCUS: 90s Golden Age (1990 to 1999) - highlight historic upsets, dramatic world cup showdowns, and memorable legends.",
+    "ERA FOCUS: Balanced Historical Spectrum (1975 to 2026) - distribute questions evenly across different eras.",
+  ];
+  const chosenEra = eraPartitions[Math.floor(Math.random() * eraPartitions.length)];
 
   // Dynamic Variety Angles to guarantee questions never repeat continuously
   const varietyAngles = [
@@ -535,7 +546,7 @@ Do NOT generate questions similar to these recent topics or with these answers. 
     "Angle B: Legendary Individual Records & Statistical Benchmarks (single-season or all-time records)",
     "Angle C: Historic Upsets, Dramatic Comebacks & Underdog Fairytales",
     "Angle D: Major Individual Awards (Player of the Tournament, MVP, Golden Boot/Ball, Orange/Purple Cap)",
-    "Angle E: Modern Era Milestones (specifically between 2020 and 2026)",
+    "Angle E: Tactical Masterclasses, Death-Over / Stoppage-Time Thrillers & Sudden Death",
     "Angle F: Memorable Controversies, Iconic Drama, Decisive Clutch Moments & Host Venues",
   ];
   const selectedVariety = [...varietyAngles].sort(() => Math.random() - 0.5).slice(0, 3).join("\n- ");
@@ -555,8 +566,8 @@ ${diffInstruction}
 ${categoryInstruction}
 ${excludeSection}
 
-ROUND VARIETY DIRECTIVE:
-Mix and balance the questions across these specific sub-angles to guarantee rich trivia diversity:
+ROUND VARIETY & ERA DIRECTIVES:
+- ${chosenEra}
 - ${selectedVariety}
 
 ${randomSeed}

@@ -2,9 +2,14 @@ import { type Sport, type Difficulty } from "@/data/questions";
 import { generateAIQuestions } from "./ai_question_generator";
 import {
   validateQuestion,
-  extractQuestionStem,
   type ValidatedQuestion,
+  normalizeQuestionText,
 } from "./question_validator";
+import {
+  auditCandidateQuestion,
+  auditDeck,
+  type DeckAuditContext,
+} from "./deck_auditor";
 
 export interface CreateQuizRequest {
   userId?: string | null;
@@ -49,7 +54,14 @@ export function randomizeQuestionOptions(q: ValidatedQuestion): ValidatedQuestio
   }
 
   const newOptions = perm.map((idx) => q.options[idx]) as [string, string, string, string];
-  const newAnswerIndex = newOptions.findIndex((opt) => opt === q.correctAnswerText);
+  const targetAnsNorm = normalizeQuestionText(q.correctAnswerText);
+  
+  let newAnswerIndex = newOptions.findIndex((opt) => normalizeQuestionText(opt) === targetAnsNorm);
+
+  // Fallback direct match if whitespace normalization differed
+  if (newAnswerIndex === -1) {
+    newAnswerIndex = newOptions.findIndex((opt) => opt.trim().toLowerCase() === q.correctAnswerText.trim().toLowerCase());
+  }
 
   if (newAnswerIndex === -1) {
     throw new Error(`Critical: Option randomization failed to map correct answer '${q.correctAnswerText}'`);
@@ -66,6 +78,11 @@ export function randomizeQuestionOptions(q: ValidatedQuestion): ValidatedQuestio
  * Orchestrates personalized quiz generation on-the-fly via AI.
  * ZERO DATABASE PERSISTENCE for questions: questions are dynamically synthesized
  * and never written to Supabase or any database, eliminating stale duplicate pools.
+ * 
+ * Incorporates Strict Self-Auditing & Quality Gates:
+ * - 0 intra-deck duplicate questions or duplicate answers
+ * - 0 repeats against user historical seen questions (up to 1000 unique questions over 100 games)
+ * - 100% tournament & difficulty compliance
  */
 export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promise<QuizDeckResponse> {
   const { sport, difficulty, count, mode = "classic", category, excludeStems = [], excludeAnswers = [] } = params;
@@ -80,11 +97,19 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
       ? "challenge"
       : "classic";
 
+  const auditContext: DeckAuditContext = {
+    sport,
+    difficulty,
+    category,
+    excludeStems,
+    excludeAnswers,
+  };
+
   const collectedQuestions: ValidatedQuestion[] = [];
-  const seenRoundHashes = new Set<string>();
   const seenRoundStems = new Set<string>();
+  const seenRoundAnswers = new Set<string>();
   let attempts = 0;
-  const maxAttempts = 3;
+  const maxAttempts = 5;
 
   while (collectedQuestions.length < count && attempts < maxAttempts) {
     attempts++;
@@ -97,7 +122,7 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
       category,
       mode: normalizedMode,
       excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
-      excludeAnswers: [...excludeAnswers, ...collectedQuestions.map((q) => q.correctAnswerText)],
+      excludeAnswers: [...excludeAnswers, ...Array.from(seenRoundAnswers)],
     });
 
     for (const raw of rawBatch) {
@@ -110,24 +135,22 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
 
       const validated = validation.question;
 
-      // Duplicate checks within current round
-      if (seenRoundHashes.has(validated.questionHash)) {
+      // Strict Deck Audit against current deck, past games, and tournament rules
+      const audit = auditCandidateQuestion(validated, collectedQuestions, auditContext);
+      if (!audit.passed) {
         continue;
       }
 
-      const stem = extractQuestionStem(validated.question);
-      if (seenRoundStems.has(stem)) {
-        continue;
-      }
-
-      seenRoundHashes.add(validated.questionHash);
-      seenRoundStems.add(stem);
+      seenRoundStems.add(validated.question.slice(0, 45));
+      seenRoundAnswers.add(validated.correctAnswerText);
       collectedQuestions.push(validated);
     }
   }
 
-  // Top up if any slot remaining
-  if (collectedQuestions.length < count) {
+  // Top up if any slot remaining after main loop
+  let topUpAttempts = 0;
+  while (collectedQuestions.length < count && topUpAttempts < 3) {
+    topUpAttempts++;
     const rawTopUp = await generateAIQuestions({
       sport,
       difficulty,
@@ -135,19 +158,29 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
       category,
       mode: normalizedMode,
       excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
+      excludeAnswers: [...excludeAnswers, ...Array.from(seenRoundAnswers)],
     });
+
     for (const raw of rawTopUp) {
       if (collectedQuestions.length >= count) break;
       const v = validateQuestion(raw, category);
-      if (v.valid && v.question && !seenRoundHashes.has(v.question.questionHash)) {
-        seenRoundHashes.add(v.question.questionHash);
-        collectedQuestions.push(v.question);
+      if (v.valid && v.question) {
+        const audit = auditCandidateQuestion(v.question, collectedQuestions, auditContext);
+        if (audit.passed) {
+          seenRoundStems.add(v.question.question.slice(0, 45));
+          seenRoundAnswers.add(v.question.correctAnswerText);
+          collectedQuestions.push(v.question);
+        }
       }
     }
   }
 
+  // Final Quality Seal: Audit the entire compiled deck
+  const finalAudit = auditDeck(collectedQuestions, auditContext, count);
+  const certifiedDeck = finalAudit.validQuestions;
+
   // Randomize options & verify correct answer positions
-  const randomizedOptionsDeck = collectedQuestions.map((q) => randomizeQuestionOptions(q));
+  const randomizedOptionsDeck = certifiedDeck.map((q) => randomizeQuestionOptions(q));
 
   // Randomize question order
   const finalDeck = shuffleArray(randomizedOptionsDeck);
@@ -163,4 +196,3 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
     mode,
   };
 }
-

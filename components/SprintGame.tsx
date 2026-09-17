@@ -5,7 +5,8 @@ import { useQuizStore } from "@/lib/store";
 import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import ResultsScreen from "@/components/ResultsScreen";
 import { audio } from "@/lib/audio";
-import { buildGame, getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
+import { buildGame } from "@/lib/quiz";
+import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 import { motion, AnimatePresence } from "motion/react";
 import { Zap, Flame, Check, X, Loader2 } from "lucide-react";
 
@@ -102,14 +103,15 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
             sprintTournament !== "All Grand Prix"
               ? sprintTournament
               : undefined,
-          excludeStems: recentStems,
+          excludeStems: [...getSeenStems(150), ...recentStems],
+          excludeAnswers: getSeenAnswers(80),
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
         appendQuestions(data.questions);
-        markQuestionsSeen(data.questions.map((q: Question) => q.question.slice(0, 45)));
+        recordQuestionsAsSeen(data.questions);
       }
     } catch (err) {
       console.warn("[Sprint] Background prefetch notice:", err);
@@ -133,7 +135,8 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
         : undefined;
 
     try {
-      const seenIds = Array.from(getPersistentSeenIds()).slice(-30);
+      const excludeStems = getSeenStems(150);
+      const excludeAnswers = getSeenAnswers(80);
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,7 +146,8 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           count: 25,
           category: activeTournament,
           mode: "sprint",
-          excludeStems: seenIds,
+          excludeStems,
+          excludeAnswers,
         }),
       });
 
@@ -152,8 +156,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
 
       if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
         pool = data.questions;
-        const newStems = pool.map((item) => item.question.slice(0, 45));
-        markQuestionsSeen(newStems);
+        recordQuestionsAsSeen(pool);
       } else {
         // Resilient fallback if provider rate limits
         pool = buildGame({ sport: sprintSport, difficulty: sprintDifficulty, count: 25, category: activeTournament });

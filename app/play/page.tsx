@@ -8,7 +8,7 @@ import { useQuizStore } from "@/lib/store";
 import { useAuth } from "@/components/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import QuizGame from "@/components/QuizGame";
-import { getPersistentSeenIds, markQuestionsSeen } from "@/lib/quiz";
+import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 import { ArrowLeft, Play, Check, Sparkles, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { motion, useInView, AnimatePresence } from "motion/react";
@@ -89,7 +89,8 @@ function PlayContent() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const seenIds = Array.from(getPersistentSeenIds()).slice(-40);
+      const excludeStems = getSeenStems(150);
+      const excludeAnswers = getSeenAnswers(80);
 
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
@@ -100,7 +101,8 @@ function PlayContent() {
           count,
           category: selectedTournament !== "All Tournaments" && selectedTournament !== "All Events" && selectedTournament !== "All Grand Prix" ? selectedTournament : undefined,
           mode: "classic",
-          excludeStems: seenIds,
+          excludeStems,
+          excludeAnswers,
         }),
       });
 
@@ -110,9 +112,8 @@ function PlayContent() {
         throw new Error(data.message || data.error || "Failed to generate valid questions.");
       }
 
-      // Mark questions as seen locally to prevent future repeats
-      const newQuestionStems = data.questions.map((q: { question: string }) => q.question.slice(0, 45));
-      markQuestionsSeen(newQuestionStems);
+      // Mark questions as seen permanently to guarantee zero repetition across 100+ games
+      recordQuestionsAsSeen(data.questions);
 
       useQuizStore.getState().start(data.questions, {
         sport,
