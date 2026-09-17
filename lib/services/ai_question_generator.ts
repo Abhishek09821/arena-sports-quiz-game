@@ -517,6 +517,8 @@ async function generateViaOpenAICompatible(
   // Candidate models supported on Groq
   const candidateModels = [
     preferredModel,
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
@@ -743,7 +745,7 @@ export async function generateAIQuestions(options: GenerateOptions): Promise<Raw
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
   const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
-  const groqModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+  const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
   // 1. 1v1 Multiplayer & 60s Sprint -> Routed to Grok / Groq API
   if (mode === "multiplayer" || mode === "sprint") {
