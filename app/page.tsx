@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ArrowUpRight,
   KeyRound,
+  Star,
 } from "lucide-react";
 import { SPORT_LIST, SPORT_META } from "@/data/questions";
 import { audio } from "@/lib/audio";
@@ -51,13 +52,20 @@ const modes = [
     href: "/challenge",
     accent: "#a855f7",
   },
+  {
+    icon: <Star size={22} />,
+    title: "Know Your Idol",
+    desc: "Test your knowledge on legends.",
+    href: "/idol",
+    accent: "#eab308",
+  },
 ];
 
 const stats = [
   { icon: <Gamepad2 size={16} />, value: "8", label: "Sports", color: "#00d4ff" },
   { icon: <Calendar size={16} />, value: "1990–2026", label: "Coverage", color: "#a855f7" },
   { icon: <HelpCircle size={16} />, value: "AI Generated", label: "Questions", color: "#22d37e" },
-  { icon: <Users size={16} />, value: "4", label: "Game Modes", color: "#f59e0b" },
+  { icon: <Users size={16} />, value: "5", label: "Game Modes", color: "#f59e0b" },
 ];
 
 function AnimatedSection({ children, className, delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {

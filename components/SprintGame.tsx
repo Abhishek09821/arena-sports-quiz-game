@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuizStore } from "@/lib/store";
-import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
+import { SPORT_LIST, TOURNAMENTS_BY_SPORT, DECADE_OPTIONS, type DecadeOption, type Question, type Sport, type Difficulty } from "@/data/questions";
 import ResultsScreen from "@/components/ResultsScreen";
 import { audio } from "@/lib/audio";
 import { buildGame } from "@/lib/quiz";
@@ -75,6 +75,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
   const [sprintSport, setSprintSport] = useState<Sport | "All Sports">("All Sports");
   const [sprintTournament, setSprintTournament] = useState("All Tournaments");
   const [sprintDifficulty, setSprintDifficulty] = useState<Difficulty | "Mixed">("Mixed");
+  const [sprintDecade, setSprintDecade] = useState<DecadeOption>("all");
   const [isGenerating, setIsGenerating] = useState(false);
   const [sprintQuestions, setSprintQuestions] = useState<Question[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -105,6 +106,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
               : undefined,
           excludeStems: [...getSeenStems(150), ...recentStems],
           excludeAnswers: getSeenAnswers(80),
+          decade: sprintDecade !== "all" ? sprintDecade : undefined,
         }),
       });
 
@@ -118,7 +120,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
     } finally {
       isPrefetchingRef.current = false;
     }
-  }, [sprintSport, sprintDifficulty, sprintTournament, appendQuestions]);
+  }, [sprintSport, sprintDifficulty, sprintTournament, sprintDecade, appendQuestions]);
 
   // Initialize sprint with AI generated 25 questions via Groq
   const startSprint = useCallback(async () => {
@@ -148,6 +150,7 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
           mode: "sprint",
           excludeStems,
           excludeAnswers,
+          decade: sprintDecade !== "all" ? sprintDecade : undefined,
         }),
       });
 
@@ -459,6 +462,29 @@ export default function SprintGame({ onExit }: { onExit?: () => void }) {
                   }`}
                 >
                   {d}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Decade / Era Filter */}
+          <div className="text-left mb-6">
+            <label className="block text-xs font-semibold text-arena-muted uppercase tracking-wider mb-1.5">
+              Era Filter
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {DECADE_OPTIONS.map((d) => (
+                <button
+                  key={d.value}
+                  type="button"
+                  onClick={() => { setSprintDecade(d.value); audio.click(); }}
+                  className={`py-2 px-2.5 text-xs rounded-xl font-bold transition-all border text-center cursor-pointer ${
+                    sprintDecade === d.value
+                      ? "bg-arena-accent/20 border-arena-accent text-arena-accent shadow-[0_0_15px_rgba(0,212,255,0.25)]"
+                      : "bg-white/[.02] border-arena-line text-arena-muted hover:text-arena-text hover:border-white/20"
+                  }`}
+                >
+                  {d.label}
                 </button>
               ))}
             </div>

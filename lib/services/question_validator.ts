@@ -88,7 +88,7 @@ export function calculateQuestionHash(questionText: string, options: string[]): 
  * - Non-empty question and explanation
  * - Plausible distractor check (options cannot be identical or single non-sense characters)
  */
-export function validateQuestion(raw: unknown, targetTournament?: string): ValidationResult {
+export function validateQuestion(raw: unknown, targetTournament?: string, targetDifficulty?: string, decadeRange?: [number, number]): ValidationResult {
   const errors: string[] = [];
 
   if (!raw || typeof raw !== "object") {
@@ -201,6 +201,11 @@ export function validateQuestion(raw: unknown, targetTournament?: string): Valid
     resolvedDiff = q.difficulty as Difficulty;
   }
 
+  // 3b. STRICT Difficulty Enforcement — reject if AI returned wrong difficulty
+  if (targetDifficulty && targetDifficulty !== "Mixed" && resolvedDiff.toLowerCase() !== targetDifficulty.toLowerCase()) {
+    errors.push(`Difficulty mismatch: Question is "${resolvedDiff}" but "${targetDifficulty}" was requested. Rejected.`);
+  }
+
   // 4. Options validation
   if (!Array.isArray(q.options) || q.options.length !== 4) {
     errors.push(`Options must be an array of exactly 4 strings. Received: ${Array.isArray(q.options) ? q.options.length : typeof q.options}`);
@@ -263,6 +268,13 @@ export function validateQuestion(raw: unknown, targetTournament?: string): Valid
     errors.push(`Question year (${year}) is outside strict 1975-2026 window. All trivia must be from 1975 to 2026.`);
   }
 
+  // 7b. Decade Range Enforcement
+  if (decadeRange && decadeRange.length === 2) {
+    if (year < decadeRange[0] || year > decadeRange[1]) {
+      errors.push(`Question year (${year}) is outside the selected decade range ${decadeRange[0]}-${decadeRange[1]}. Rejected.`);
+    }
+  }
+
   // 8. Tournament Category Alignment Verification
   let finalCategory = typeof q.category === "string" && q.category.trim().length > 0
     ? q.category.trim()
@@ -297,6 +309,58 @@ export function validateQuestion(raw: unknown, targetTournament?: string): Valid
     } else if (tLower.includes("monaco")) {
       if (/\b(silverstone|monza|abu dhabi|suzuka|spa)\b/i.test(combinedContent) && !combinedContent.includes("monaco")) {
         errors.push(`Question rejected: Contains off-track references while Monaco Grand Prix was specified.`);
+      }
+    } else if (tLower.includes("silverstone") || tLower.includes("british grand prix")) {
+      if (/\b(monaco|monza|abu dhabi|suzuka|spa)\b/i.test(combinedContent) && !combinedContent.includes("silverstone") && !combinedContent.includes("british")) {
+        errors.push(`Question rejected: Contains off-track references while British Grand Prix was specified.`);
+      }
+    } else if (tLower.includes("monza") || tLower.includes("italian grand prix")) {
+      if (/\b(monaco|silverstone|abu dhabi|suzuka|spa)\b/i.test(combinedContent) && !combinedContent.includes("monza") && !combinedContent.includes("italian")) {
+        errors.push(`Question rejected: Contains off-track references while Italian Grand Prix was specified.`);
+      }
+    } else if (tLower.includes("abu dhabi")) {
+      if (/\b(monaco|silverstone|monza|suzuka|spa)\b/i.test(combinedContent) && !combinedContent.includes("abu dhabi")) {
+        errors.push(`Question rejected: Contains off-track references while Abu Dhabi Grand Prix was specified.`);
+      }
+    } else if (tLower.includes("fifa world cup")) {
+      if (/\b(champions league|premier league|la liga|serie a|bundesliga|europa league)\b/i.test(combinedContent) && !combinedContent.includes("world cup")) {
+        errors.push(`Question rejected: Contains club competition references while FIFA World Cup was specified.`);
+      }
+    } else if (tLower.includes("premier league")) {
+      if (/\b(world cup|champions league|la liga|serie a|bundesliga)\b/i.test(combinedContent) && !combinedContent.includes("premier league")) {
+        errors.push(`Question rejected: Contains off-league references while Premier League was specified.`);
+      }
+    } else if (tLower.includes("la liga")) {
+      if (/\b(world cup|champions league|premier league|serie a|bundesliga)\b/i.test(combinedContent) && !combinedContent.includes("la liga")) {
+        errors.push(`Question rejected: Contains off-league references while La Liga was specified.`);
+      }
+    } else if (tLower.includes("summerslam")) {
+      if (/\b(wrestlemania|royal rumble|survivor series)\b/i.test(combinedContent) && !combinedContent.includes("summerslam")) {
+        errors.push(`Question rejected: Contains off-event references while SummerSlam was specified.`);
+      }
+    } else if (tLower.includes("survivor series")) {
+      if (/\b(wrestlemania|royal rumble|summerslam)\b/i.test(combinedContent) && !combinedContent.includes("survivor series")) {
+        errors.push(`Question rejected: Contains off-event references while Survivor Series was specified.`);
+      }
+    } else if (tLower.includes("nba finals")) {
+      if (/\b(regular season|all-star|olympic|fiba|euroleague)\b/i.test(combinedContent) && !combinedContent.includes("finals") && !combinedContent.includes("playoff")) {
+        errors.push(`Question rejected: Contains off-event references while NBA Finals was specified.`);
+      }
+    } else if (tLower.includes("ufc numbered") || tLower.includes("ufc ppv")) {
+      if (/\b(fight night|ufc on espn|ufc on fox)\b/i.test(combinedContent)) {
+        errors.push(`Question rejected: Contains Fight Night references while UFC Numbered PPVs was specified.`);
+      }
+    } else if (tLower.includes("t20 world cup")) {
+      if (/\b(odi world cup|test match|ashes|ipl|champions trophy)\b/i.test(combinedContent) && !combinedContent.includes("t20")) {
+        errors.push(`Question rejected: Contains off-format references while T20 World Cup was specified.`);
+      }
+    } else if (tLower.includes("champions trophy")) {
+      if (/\b(world cup|ashes|ipl|t20)\b/i.test(combinedContent) && !combinedContent.includes("champions trophy")) {
+        errors.push(`Question rejected: Contains off-tournament references while Champions Trophy was specified.`);
+      }
+    } else if (tLower.includes("world test championship")) {
+      if (/\b(odi|t20|ipl|champions trophy)\b/i.test(combinedContent) && !combinedContent.includes("test championship") && !combinedContent.includes("wtc")) {
+        errors.push(`Question rejected: Contains off-format references while World Test Championship was specified.`);
       }
     }
   }

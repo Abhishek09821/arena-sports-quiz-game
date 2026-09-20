@@ -8,7 +8,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { Question, Sport, Difficulty } from "@/data/questions";
 import { scoreAnswer } from "@/lib/scoring";
 
-export type GameMode = "classic" | "sprint" | "challenge" | "buzzer";
+export type GameMode = "classic" | "sprint" | "challenge" | "buzzer" | "idol";
 
 export interface AnswerRecord {
   questionId: string;

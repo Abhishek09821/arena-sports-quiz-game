@@ -15,6 +15,8 @@ export async function POST(req: Request) {
     const category = body.category;
     const excludeStems = Array.isArray(body.excludeStems) ? body.excludeStems : [];
     const excludeAnswers = Array.isArray(body.excludeAnswers) ? body.excludeAnswers : [];
+    const decade = body.decade || undefined;
+    const idol = body.idol || undefined;
 
     const deck = await generatePersonalizedQuiz({
       userId: userAuth.userId,
@@ -25,6 +27,8 @@ export async function POST(req: Request) {
       category,
       excludeStems,
       excludeAnswers,
+      decade,
+      idol,
     });
 
     return NextResponse.json({

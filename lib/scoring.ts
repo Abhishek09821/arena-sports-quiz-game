@@ -19,7 +19,7 @@ export const TIME_LIMITS: Record<Difficulty, number> = {
   Easy: 30,
   Medium: 25,
   Hard: 20,
-  Legendary: 16,
+  Legendary: 20,
 };
 
 /** Streak bonus per consecutive correct answer */

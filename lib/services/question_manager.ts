@@ -1,4 +1,4 @@
-import { type Sport, type Difficulty } from "@/data/questions";
+import { type Sport, type Difficulty, DECADE_OPTIONS, type DecadeOption } from "@/data/questions";
 import { generateAIQuestions } from "./ai_question_generator";
 import {
   validateQuestion,
@@ -16,10 +16,12 @@ export interface CreateQuizRequest {
   sport: Sport | "All Sports";
   difficulty: Difficulty | "Mixed";
   count: number;
-  mode?: "classic" | "sprint" | "challenge" | "buzzer" | "multiplayer";
+  mode?: "classic" | "sprint" | "challenge" | "buzzer" | "multiplayer" | "idol";
   category?: string;
   excludeStems?: string[];
   excludeAnswers?: string[];
+  decade?: DecadeOption;
+  idol?: string;
 }
 
 export interface QuizDeckResponse {
@@ -85,16 +87,27 @@ export function randomizeQuestionOptions(q: ValidatedQuestion): ValidatedQuestio
  * - 100% tournament & difficulty compliance
  */
 export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promise<QuizDeckResponse> {
-  const { sport, difficulty, count, mode = "classic", category, excludeStems = [], excludeAnswers = [] } = params;
+  const { sport, difficulty, count, mode = "classic", category, excludeStems = [], excludeAnswers = [], decade, idol } = params;
+
+  // Resolve decade range for validation
+  let decadeRange: [number, number] | undefined;
+  if (decade && decade !== "all") {
+    const found = DECADE_OPTIONS.find((d) => d.value === decade);
+    if (found) {
+      decadeRange = [found.range[0], found.range[1]];
+    }
+  }
 
   // Map mode
-  const normalizedMode: "classic" | "challenge" | "sprint" | "multiplayer" =
+  const normalizedMode: "classic" | "challenge" | "sprint" | "multiplayer" | "idol" =
     mode === "buzzer" || mode === "multiplayer"
       ? "multiplayer"
       : mode === "sprint"
       ? "sprint"
       : mode === "challenge"
       ? "challenge"
+      : mode === "idol"
+      ? "idol"
       : "classic";
 
   const auditContext: DeckAuditContext = {
@@ -123,12 +136,14 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
       mode: normalizedMode,
       excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
       excludeAnswers: [...excludeAnswers, ...Array.from(seenRoundAnswers)],
+      decade,
+      idol,
     });
 
     for (const raw of rawBatch) {
       if (collectedQuestions.length >= count) break;
 
-      const validation = validateQuestion(raw, category);
+      const validation = validateQuestion(raw, category, difficulty, decadeRange);
       if (!validation.valid || !validation.question) {
         continue;
       }
@@ -159,11 +174,13 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promi
       mode: normalizedMode,
       excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
       excludeAnswers: [...excludeAnswers, ...Array.from(seenRoundAnswers)],
+      decade,
+      idol,
     });
 
     for (const raw of rawTopUp) {
       if (collectedQuestions.length >= count) break;
-      const v = validateQuestion(raw, category);
+      const v = validateQuestion(raw, category, difficulty, decadeRange);
       if (v.valid && v.question) {
         const audit = auditCandidateQuestion(v.question, collectedQuestions, auditContext);
         if (audit.passed) {

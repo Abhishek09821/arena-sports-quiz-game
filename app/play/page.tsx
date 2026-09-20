@@ -3,7 +3,7 @@
 import { useState, Suspense, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
-import { SPORT_LIST, SPORT_META, DIFFICULTY_LIST, TOURNAMENTS_BY_SPORT, type Difficulty, type Sport } from "@/data/questions";
+import { SPORT_LIST, SPORT_META, DIFFICULTY_LIST, TOURNAMENTS_BY_SPORT, DECADE_OPTIONS, type DecadeOption, type Difficulty, type Sport } from "@/data/questions";
 import { useQuizStore } from "@/lib/store";
 import { useAuth } from "@/components/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -50,6 +50,7 @@ function PlayContent() {
   const [selectedTournament, setSelectedTournament] = useState("All Tournaments");
   const [count, setCount] = useState(10);
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
+  const [selectedDecade, setSelectedDecade] = useState<DecadeOption>("all");
   const [started, setStarted] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
@@ -101,6 +102,7 @@ function PlayContent() {
           count,
           category: selectedTournament !== "All Tournaments" && selectedTournament !== "All Events" && selectedTournament !== "All Grand Prix" ? selectedTournament : undefined,
           mode: "classic",
+          decade: selectedDecade !== "all" ? selectedDecade : undefined,
           excludeStems,
           excludeAnswers,
         }),
@@ -318,6 +320,37 @@ function PlayContent() {
             </p>
           </motion.div>
 
+          {/* Decade / Era Filter */}
+          <motion.div
+            className="arena-card"
+            initial={{ opacity: 0, y: 20 }}
+            animate={configInView ? { opacity: 1, y: 0 } : {}}
+            transition={{ delay: 0.12, duration: 0.4 }}
+          >
+            <div className="arena-eyebrow">3 · Era</div>
+            <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
+              Which decade?
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {DECADE_OPTIONS.map((d) => {
+                const active = selectedDecade === d.value;
+                return (
+                  <button
+                    key={d.value}
+                    className="arena-card arena-tile px-3 py-2 text-center relative"
+                    data-active={active ? "true" : undefined}
+                    onClick={() => {
+                      setSelectedDecade(d.value);
+                      audio.select();
+                    }}
+                  >
+                    <div className="font-semibold text-xs">{d.label}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+
           {/* Question Count */}
           <motion.div
             className="arena-card"
@@ -325,7 +358,7 @@ function PlayContent() {
             animate={configInView ? { opacity: 1, y: 0 } : {}}
             transition={{ delay: 0.15, duration: 0.4 }}
           >
-            <div className="arena-eyebrow">3 · Length</div>
+            <div className="arena-eyebrow">4 · Length</div>
             <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
               How many questions?
             </h3>

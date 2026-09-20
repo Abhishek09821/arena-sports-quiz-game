@@ -1,4 +1,4 @@
-import { type Sport, type Difficulty, SPORT_LIST } from "@/data/questions";
+import { type Sport, type Difficulty, SPORT_LIST, DECADE_OPTIONS, type DecadeOption, IDOL_BY_SPORT } from "@/data/questions";
 import { RawGeneratedQuestion } from "./question_validator";
 
 export interface GenerateOptions {
@@ -8,7 +8,9 @@ export interface GenerateOptions {
   category?: string;
   excludeStems?: string[];
   excludeAnswers?: string[];
-  mode?: "classic" | "challenge" | "sprint" | "multiplayer";
+  mode?: "classic" | "challenge" | "sprint" | "multiplayer" | "idol";
+  decade?: DecadeOption;
+  idol?: string;
 }
 
 /**
@@ -436,10 +438,61 @@ export function getTournamentContext(tournament?: string): string {
 
 /**
  * Builds the AI system prompt enforcing sports factuality, credible options, strict JSON format,
- * zero repetition, and strict temporal boundary (1975-2026 only).
+ * zero repetition, strict temporal boundary, decade filtering, idol mode, and difficulty enforcement.
  */
 export function buildPrompt(options: GenerateOptions): string {
-  const { sport, difficulty, count, category, excludeStems, excludeAnswers } = options;
+  const { sport, difficulty, count, category, excludeStems, excludeAnswers, decade, idol } = options;
+
+  // ── Resolve decade year range ─────────────────────────────────
+  let yearMin = 1975;
+  let yearMax = 2026;
+  let decadeInstruction = "";
+  if (decade && decade !== "all") {
+    const found = DECADE_OPTIONS.find((d) => d.value === decade);
+    if (found) {
+      yearMin = found.range[0];
+      yearMax = found.range[1];
+      decadeInstruction = `\nDECADE FILTER (MANDATORY — STRICTLY ENFORCED):
+Every question MUST be about events, matches, records, or moments that occurred between ${yearMin} and ${yearMax} ONLY.
+The "year" field of EVERY question MUST be an integer between ${yearMin} and ${yearMax}.
+Do NOT include any events from outside this range. Questions about events before ${yearMin} or after ${yearMax} will be AUTOMATICALLY REJECTED.\n`;
+    }
+  }
+
+  // ── Idol mode prompt ──────────────────────────────────────────
+  if (idol && sport !== "All Sports") {
+    const idolList = IDOL_BY_SPORT[sport as Sport];
+    const selectedIdol = idolList?.find((p) => p.name === idol);
+    if (selectedIdol) {
+      const excludeSec = _buildExcludeSection(excludeStems, excludeAnswers);
+      const randomSeed = `Entropy Seed: ${Date.now()}-${Math.floor(Math.random() * 1000000)}-${Math.random().toString(36).slice(2, 7)}`;
+
+      return `You are the world's leading ${sport} trivia archivist specializing in player biographies and career milestones.
+Generate exactly ${count} unique, factually verified trivia questions about ${selectedIdol.name} (${selectedIdol.nickname || ""}, active ${selectedIdol.era}).
+
+KNOW YOUR IDOL MODE — STRICT RULES:
+1. EVERY question must be EXCLUSIVELY about ${selectedIdol.name}'s career, records, achievements, milestones, and moments.
+2. Questions must cover different aspects: career stats, records broken, specific matches, awards, team history, rivalries, debut, retirement, iconic moments.
+3. All 4 answer options must be plausible alternatives from the same sport.
+4. FACTUAL ACCURACY: Never hallucinate stats, scores, or facts about ${selectedIdol.name}. Use only verified historical data.
+5. The "sport" field must be "${sport}".
+6. Set "category" to "Know Your Idol: ${selectedIdol.name}".
+
+${_buildDifficultyInstruction(difficulty)}
+
+DIFFICULTY ENFORCEMENT (MANDATORY):
+${difficulty !== "Mixed" ? `Every question MUST have its "difficulty" field set to EXACTLY "${difficulty}". Do NOT label questions as any other difficulty.` : "Use a balanced mix of Easy, Medium, Hard. Label each accurately."}
+${decadeInstruction}
+${excludeSec}
+
+${randomSeed}
+
+OUTPUT FORMAT:
+Respond ONLY with a valid JSON object: {"questions": [...]}
+Do not include markdown code fences or conversational text.
+Each question object: {"sport", "difficulty", "category", "year", "question", "options" (array of 4 strings), "answer" (correct answer text string), "explanation"}`;
+    }
+  }
 
   const isTournamentSpecific = Boolean(
     category &&
@@ -451,13 +504,23 @@ export function buildPrompt(options: GenerateOptions): string {
 
   let sportInstruction = "";
   if (isTournamentSpecific) {
-    sportInstruction = `STRICT TOURNAMENT ISOLATION (MANDATORY):
-Every single one of the ${count} questions MUST strictly, exclusively, and directly test real events, champions, matches, and records from "${category}".
-DO NOT generate general sports questions or questions from other leagues, tournaments, or competitions outside "${category}".
-- If "${category}" is an IPL tournament, every question must be about the Indian Premier League (teams: CSK, MI, KKR, RCB, SRH, RR, GT, DC, PBKS, LSG; IPL finals, records, Orange/Purple caps). DO NOT include World Cup, Ashes, or international cricket.
-- If "${category}" is UEFA Champions League, every question must be about UEFA Champions League / European Cup matches, finals, and records. DO NOT include World Cup or domestic leagues.
-- If "${category}" is The Ashes, every question must be about the England vs Australia Test series.
-- If "${category}" is WrestleMania, every question must be about WrestleMania matches and moments.
+    sportInstruction = `STRICT TOURNAMENT ISOLATION (MANDATORY — ZERO TOLERANCE):
+Every single one of the ${count} questions MUST strictly, exclusively, and directly test real events, champions, matches, and records from "${category}" ONLY.
+
+ABSOLUTE PROHIBITION:
+- DO NOT generate ANY questions from other leagues, tournaments, or competitions outside "${category}".
+- DO NOT generate general ${sport} knowledge questions — ONLY "${category}" specific trivia.
+- If "${category}" is an IPL tournament, ONLY ask about IPL teams (CSK, MI, KKR, RCB, SRH, RR, GT, DC, PBKS, LSG), IPL finals, IPL records, Orange/Purple caps. NEVER include World Cup, Ashes, Test matches, or international cricket.
+- If "${category}" is UEFA Champions League, ONLY ask about UCL/European Cup matches, finals, group stages, records. NEVER include FIFA World Cup, Euro, Copa, or domestic league standings.
+- If "${category}" is The Ashes, ONLY ask about England vs Australia Test series. NEVER include IPL, ODI World Cup, or T20.
+- If "${category}" is WrestleMania, ONLY ask about WrestleMania matches and moments. NEVER include Royal Rumble, SummerSlam, or Survivor Series.
+- If "${category}" is Royal Rumble, ONLY ask about Royal Rumble matches and records. NEVER include WrestleMania or SummerSlam.
+- If "${category}" is FIFA World Cup, ONLY ask about FIFA World Cup matches. NEVER include Champions League, Premier League, or club football.
+- If "${category}" is Premier League, ONLY ask about the English Premier League. NEVER include World Cup or Champions League.
+- If "${category}" is La Liga, ONLY ask about Spain's La Liga. NEVER include Premier League or Champions League.
+- If "${category}" is a specific Grand Prix (Monaco, Silverstone, Monza, Abu Dhabi), ONLY ask about that specific Grand Prix venue. NEVER include other Grand Prix events.
+- If "${category}" is NBA Finals, ONLY ask about NBA Finals/Playoffs. NEVER include regular season or Olympic basketball.
+- If "${category}" is UFC Numbered PPVs, ONLY ask about numbered UFC events. NEVER include UFC Fight Night.
 All 4 options must be entities, teams, or players relevant to "${category}".`;
   } else if (sport === "All Sports") {
     sportInstruction = `Distribute the ${count} questions across a balanced variety of these 6 sports ONLY:
@@ -484,25 +547,7 @@ STRICT NEGATIVE CONSTRAINT: Absolutely DO NOT generate questions about American 
     sportInstruction = `All ${count} questions MUST be strictly and exclusively about BASKETBALL (NBA Finals, NBA Playoffs, Regular Season MVPs, All-Stars, Olympic Men's Basketball, and legends like Michael Jordan, LeBron James, Kobe Bryant, Stephen Curry, Shaquille O'Neal, Magic Johnson, Larry Bird, Nikola Jokić, Giannis Antetokounmpo).`;
   }
 
-  let diffInstruction = "";
-  if (difficulty === "Easy") {
-    diffInstruction = `DIFFICULTY: EASY (Mainstream Knowledge)
-- Target: Casual fans. Test famous champions, iconic record holders, legendary milestones (e.g., Messi 2022 World Cup, Undertaker WrestleMania streak, Hamilton 7 titles, Jordan Bulls 6 rings, IPL inaugural champion).
-- DO NOT ask obscure bench players or minor technical stats.`;
-  } else if (difficulty === "Medium") {
-    diffInstruction = `DIFFICULTY: MEDIUM (Active Sports Follower)
-- Target: Active followers. Test tournament runners-up, MVP/Golden Boot winners, championship scorelines, historic transfers, and notable rivalries.`;
-  } else if (difficulty === "Hard") {
-    diffInstruction = `DIFFICULTY: HARD (Dedicated Sports Enthusiast)
-- Target: Die-hard fans. Test specific tournament editions, exact final scores, host venues, decisive extra-time/shootout moments, and tactical head-to-heads.`;
-  } else if (difficulty === "Legendary") {
-    diffInstruction = `DIFFICULTY: LEGENDARY (Trivia Archivists & Historians)
-- Target: Deep-cut trivia masters. Test rare statistical anomalies, specific player substitutions in historic finals, venue trivia, debut opponents, or obscure regulations.
-- STRICTLY FORBIDDEN to ask common-knowledge or trivial questions.`;
-  } else {
-    diffInstruction = `DIFFICULTY: MIXED
-- Provide a balanced mix across Easy, Medium, and Hard difficulty levels. Label each question's difficulty accurately.`;
-  }
+  const diffInstruction = _buildDifficultyInstruction(difficulty);
 
   const tournamentGrounding = getTournamentContext(category);
   const categoryInstruction = isTournamentSpecific
@@ -521,24 +566,7 @@ CRITICAL VERIFICATION RULES FOR "${category}":
 5. EXPLANATION: Clearly cite the year, opponent/finalist, scoreline, or record in the explanation.`
     : "";
 
-  const excludeSection =
-    (excludeStems && excludeStems.length > 0) || (excludeAnswers && excludeAnswers.length > 0)
-      ? `\nNON-REPETITION CONSTRAINT (CRITICAL - 1000 UNIQUE QUESTIONS MANDATE):
-DO NOT generate any questions similar to these already-seen question stems, and DO NOT make any of these answers the correct answer:
-- Stems strictly forbidden: ${excludeStems?.slice(0, 120).join("; ") || "None"}
-- Answers strictly forbidden: ${excludeAnswers?.slice(0, 80).join("; ") || "None"}
-If any question covers an already asked topic or duplicates any of the above, it will be automatically discarded.`
-      : "";
-
-  // Dynamic Era Partitioning to guarantee 1000 unique questions over 100 games
-  const eraPartitions = [
-    "ERA FOCUS: Modern Era (2020 to 2026) - highlight recent tournament champions, breakout phenoms, and latest record-breaking moments.",
-    "ERA FOCUS: Decade of Dynasties (2010 to 2019) - highlight peak dominance, statistical revolutions, and iconic finals.",
-    "ERA FOCUS: Millennium Shift (2000 to 2009) - highlight early 2000s classics, foundational franchise milestones, and legendary superstars.",
-    "ERA FOCUS: 90s Golden Age (1990 to 1999) - highlight historic upsets, dramatic world cup showdowns, and memorable legends.",
-    "ERA FOCUS: Balanced Historical Spectrum (1975 to 2026) - distribute questions evenly across different eras.",
-  ];
-  const chosenEra = eraPartitions[Math.floor(Math.random() * eraPartitions.length)];
+  const excludeSection = _buildExcludeSection(excludeStems, excludeAnswers);
 
   // Dynamic Variety Angles to guarantee questions never repeat continuously
   const varietyAngles = [
@@ -548,6 +576,8 @@ If any question covers an already asked topic or duplicates any of the above, it
     "Angle D: Major Individual Awards (Player of the Tournament, MVP, Golden Boot/Ball, Orange/Purple Cap)",
     "Angle E: Tactical Masterclasses, Death-Over / Stoppage-Time Thrillers & Sudden Death",
     "Angle F: Memorable Controversies, Iconic Drama, Decisive Clutch Moments & Host Venues",
+    "Angle G: Debut performances, Maiden centuries/wins, First-time achievements",
+    "Angle H: Venue-specific facts, Host city trivia, Stadium records",
   ];
   const selectedVariety = [...varietyAngles].sort(() => Math.random() - 0.5).slice(0, 3).join("\n- ");
 
@@ -563,28 +593,34 @@ ${sportInstruction}
 
 ${diffInstruction}
 
+DIFFICULTY ENFORCEMENT (MANDATORY — ZERO TOLERANCE):
+${difficulty !== "Mixed" ? `Every question MUST have its "difficulty" field set to EXACTLY "${difficulty}". Do NOT generate questions labeled as any other difficulty.
+If the requested difficulty is "Legendary", questions MUST be extremely obscure deep-cut trivia that only hardcore historians would know. Common knowledge questions are AUTOMATICALLY REJECTED.
+If the requested difficulty is "Easy", questions MUST be mainstream knowledge that casual fans know. Obscure trivia is REJECTED.
+If the requested difficulty is "Hard", questions should challenge dedicated enthusiasts with specific details like exact scores, specific years, and tactical nuances.
+If the requested difficulty is "Medium", questions should test active followers with tournament runners-up, award winners, and notable milestones.` : "Provide a balanced mix across Easy, Medium, Hard, and Legendary. Label each question's difficulty accurately."}
+
 ${categoryInstruction}
+${decadeInstruction}
 ${excludeSection}
 
-ROUND VARIETY & ERA DIRECTIVES:
-- ${chosenEra}
+ROUND VARIETY DIRECTIVES:
 - ${selectedVariety}
 
 ${randomSeed}
 
 STRICT TEMPORAL RULES (CRITICAL):
-1. ALL TRIVIA MUST BE BETWEEN 1975 AND 2026:
-   - Every question MUST refer to matches, champions, records, fights, or events that occurred between 1975 and 2026.
-   - ABSOLUTELY NO questions from before 1975 (no 1930s, 1950s, 1960s, or early 1970s). Any pre-1975 question will be strictly rejected.
-   - ACTIVELY INCLUDE modern events from the 2020s (2020, 2021, 2022, 2023, 2024, 2025, 2026).
-   - The "year" field must be an integer between 1975 and 2026.
+1. ALL TRIVIA MUST BE BETWEEN ${yearMin} AND ${yearMax}:
+   - Every question MUST refer to matches, champions, records, fights, or events that occurred between ${yearMin} and ${yearMax}.
+   - The "year" field must be an integer between ${yearMin} and ${yearMax}.
+   - Any question with a year outside this range will be AUTOMATICALLY REJECTED.
 
 QUALITY & ANTI-HALLUCINATION RULES:
 2. FACTUAL ACCURACY: Never hallucinate or guess scores, winners, or stats. Use only 100% verified historical facts.
 3. 4 PLAUSIBLE OPTIONS: Exactly 4 options per question. All 4 must be plausible peers of the exact same category and era.
-4. UNBIASED POSITION: The correct answer must be naturally distributed among options (do NOT place answer at option 0 / A every time).
+4. UNBIASED POSITION: The correct answer must be naturally distributed among options (do NOT place answer at option 0 / A every time). Distribute across all 4 positions.
 5. CONCISE EXPLANATION: 1-2 sentence explanation citing the year, tournament, and key context.
-6. ZERO DUPLICATES: Every question in this batch must be distinct from one another and distinct from previous rounds.
+6. ZERO DUPLICATES: Every question in this batch must have a completely UNIQUE topic. No two questions about the same event, same player record, or same match.
 
 OUTPUT FORMAT:
 Respond ONLY with a valid JSON object containing a single "questions" key with an array of question objects.
@@ -594,7 +630,7 @@ Example format:
   "questions": [
     {
       "sport": "${sport === "All Sports" ? "Cricket" : sport}",
-      "difficulty": "Medium",
+      "difficulty": "${difficulty === "Mixed" ? "Medium" : difficulty}",
       "category": "${category || "Sports Records"}",
       "year": 2022,
       "question": "Which player won the Player of the Tournament award in the 2022 ICC Men's T20 World Cup?",
@@ -605,6 +641,49 @@ Example format:
   ]
 }`;
 }
+
+/** Build difficulty instruction text */
+function _buildDifficultyInstruction(difficulty: Difficulty | "Mixed"): string {
+  if (difficulty === "Easy") {
+    return `DIFFICULTY: EASY (Mainstream Knowledge)
+- Target: Casual fans. Test famous champions, iconic record holders, legendary milestones (e.g., Messi 2022 World Cup, Undertaker WrestleMania streak, Hamilton 7 titles, Jordan Bulls 6 rings, IPL inaugural champion).
+- DO NOT ask obscure bench players or minor technical stats.`;
+  } else if (difficulty === "Medium") {
+    return `DIFFICULTY: MEDIUM (Active Sports Follower)
+- Target: Active followers. Test tournament runners-up, MVP/Golden Boot winners, championship scorelines, historic transfers, and notable rivalries.`;
+  } else if (difficulty === "Hard") {
+    return `DIFFICULTY: HARD (Dedicated Sports Enthusiast)
+- Target: Die-hard fans. Test specific tournament editions, exact final scores, host venues, decisive extra-time/shootout moments, and tactical head-to-heads.`;
+  } else if (difficulty === "Legendary") {
+    return `DIFFICULTY: LEGENDARY (Trivia Archivists & Historians)
+- Target: Deep-cut trivia masters. Test rare statistical anomalies, specific player substitutions in historic finals, venue trivia, debut opponents, or obscure regulations.
+- STRICTLY FORBIDDEN to ask common-knowledge or trivial questions. If a casual fan could answer it, it is NOT Legendary.`;
+  }
+  return `DIFFICULTY: MIXED
+- Provide a balanced mix across Easy, Medium, Hard, and Legendary difficulty levels. Label each question's difficulty accurately.`;
+}
+
+/** Build exclusion section for anti-repetition */
+function _buildExcludeSection(excludeStems?: string[], excludeAnswers?: string[]): string {
+  if ((!excludeStems || excludeStems.length === 0) && (!excludeAnswers || excludeAnswers.length === 0)) {
+    return "";
+  }
+
+  const stemSlice = excludeStems?.slice(-200) || [];
+  const answerSlice = excludeAnswers?.slice(-150) || [];
+
+  return `\nZERO REPETITION MANDATE (ABSOLUTE — QUESTIONS WILL BE AUTOMATICALLY DISCARDED IF VIOLATED):
+The following topics and answers have ALREADY been asked in previous rounds. You MUST generate COMPLETELY DIFFERENT questions.
+
+FORBIDDEN QUESTION TOPICS (do NOT ask about any of these subjects again):
+${stemSlice.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+FORBIDDEN CORRECT ANSWERS (do NOT use any of these as the correct answer):
+${answerSlice.map((a, i) => `${i + 1}. ${a}`).join("\n")}
+
+Generate questions about COMPLETELY DIFFERENT events, players, records, and moments than those listed above.`;
+}
+
 
 /**
  * Clean and parse raw JSON text from AI response with multi-stage auto-repair

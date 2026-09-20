@@ -11,6 +11,7 @@ export async function POST(req: Request) {
     const sport = (body.sport || "Cricket") as Sport;
     const difficulty = (body.difficulty || "Medium") as Difficulty;
     const category = body.category;
+    const decade = body.decade || undefined;
     const excludeStems = Array.isArray(body.excludeStems) ? body.excludeStems : [];
     const excludeAnswers = Array.isArray(body.excludeAnswers) ? body.excludeAnswers : [];
 
@@ -38,10 +39,11 @@ export async function POST(req: Request) {
         category,
         excludeStems,
         excludeAnswers,
+        decade,
       });
 
       for (const raw of rawBatch) {
-        const validation = validateQuestion(raw, category);
+        const validation = validateQuestion(raw, category, difficulty);
         if (!validation.valid || !validation.question) {
           lastErrors = validation.errors;
           continue;

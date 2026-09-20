@@ -33,6 +33,8 @@ import {
   SPORT_LIST,
   DIFFICULTY_LIST,
   TOURNAMENTS_BY_SPORT,
+  DECADE_OPTIONS,
+  type DecadeOption,
   type Question,
   type Sport,
   type Difficulty,
@@ -101,6 +103,7 @@ function ChallengeContent() {
   const [aiSport, setAiSport] = useState<Sport>("Cricket");
   const [aiDifficulty, setAiDifficulty] = useState<Difficulty>("Medium");
   const [aiCategory, setAiCategory] = useState("");
+  const [aiDecade, setAiDecade] = useState<DecadeOption>("all");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGenerating10, setIsGenerating10] = useState(false);
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
@@ -289,6 +292,7 @@ function ChallengeContent() {
           difficulty: aiDifficulty,
           category: activeTournament,
           count: 10,
+          decade: aiDecade !== "all" ? aiDecade : undefined,
           excludeStems: getSeenStems(150),
           excludeAnswers: getSeenAnswers(80),
         }),
@@ -825,6 +829,22 @@ function ChallengeContent() {
                     autoFocus
                   />
                 )}
+              </div>
+
+              {/* Decade Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-arena-muted mb-1">
+                  Era / Decade Filter
+                </label>
+                <select
+                  className="arena-input text-sm"
+                  value={aiDecade}
+                  onChange={(e) => setAiDecade(e.target.value as DecadeOption)}
+                >
+                  {DECADE_OPTIONS.map((d) => (
+                    <option key={d.value} value={d.value} className="bg-arena-panel">{d.label}</option>
+                  ))}
+                </select>
               </div>
 
               {/* 1-Click 10-Question Button */}
