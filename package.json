@@ -9,7 +9,7 @@
     "start": "NODE_ENV=production node server.mjs",
     "socket": "node scripts/socket-server.mjs",
     "lint": "npx eslint app/ components/ lib/ data/ --max-warnings 0",
-    "test": "npx tsx tests/core.test.ts"
+    "test": "node --import tsx tests/core.test.ts && node --import tsx --test tests/quality.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",

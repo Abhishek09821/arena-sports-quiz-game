@@ -221,39 +221,19 @@ export function buildGame(options: SelectionOptions): Question[] {
     category !== "All Grand Prix"
   );
 
-  let pool = SYNC_FALLBACK_POOL.filter((q) => {
+  const pool = SYNC_FALLBACK_POOL.filter((q) => {
     if (sport && sport !== "All Sports" && q.sport !== sport) return false;
     if (isTournamentSpecific && q.category && q.category !== category) return false;
     if (difficulty && difficulty !== "Mixed" && q.difficulty !== difficulty) return false;
-    if (exclude?.has(q.id)) return false;
+    if (exclude?.has(q.id) || sessionHistory.has(q.id) || getPersistentSeenIds().has(q.id)) return false;
+    if (options.yearRange && (q.year < options.yearRange[0] || q.year > options.yearRange[1])) return false;
     return true;
   });
 
-  if (pool.length < count) {
-    // Relax difficulty filter if needed, keeping sport and tournament strict
-    const relaxed = SYNC_FALLBACK_POOL.filter((q) => {
-      if (sport && sport !== "All Sports" && q.sport !== sport) return false;
-      if (isTournamentSpecific && q.category && q.category !== category) return false;
-      if (pool.some((p) => p.id === q.id)) return false;
-      return true;
-    });
-    pool = [...pool, ...relaxed];
-  }
-
-  if (pool.length < count && isTournamentSpecific) {
-    // If tournament pool exhausted, pull remaining questions from the exact same sport
-    const sameSport = SYNC_FALLBACK_POOL.filter((q) => {
-      if (sport && sport !== "All Sports" && q.sport !== sport) return false;
-      if (pool.some((p) => p.id === q.id)) return false;
-      return true;
-    });
-    pool = [...pool, ...sameSport];
-  }
-
-  if (pool.length === 0) {
-    pool = [...SYNC_FALLBACK_POOL];
-  }
-
   const randomized = pool.map((q) => shuffleQuestionOptions(q));
-  return shuffle(randomized).slice(0, count);
+  const selected = shuffle(randomized).slice(0, count);
+  if (selected.length !== count) throw new Error("Not enough fresh questions for this selection.");
+  selected.forEach(q => sessionHistory.add(q.id));
+  markQuestionsSeen(selected.map(q => q.id));
+  return selected;
 }

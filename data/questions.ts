@@ -17,12 +17,12 @@ export const DIFFICULTY_LIST = ["Easy", "Medium", "Hard", "Legendary"] as const;
 export type Difficulty = (typeof DIFFICULTY_LIST)[number];
 
 export const SPORT_META: Record<Sport, { icon: string; color: string; desc: string }> = {
-  Cricket: { icon: "🏏", color: "#71e6ff", desc: "ICC World Cups, IPL, Ashes & T20 records" },
-  Football: { icon: "⚽", color: "#62e6a4", desc: "FIFA World Cup, UEFA Champions League, Premier League" },
-  Basketball: { icon: "🏀", color: "#fbbf24", desc: "NBA Finals, Playoff thrillers & Olympic hoops" },
-  "Formula 1": { icon: "🏎️", color: "#ff6b7a", desc: "Grand Prix milestones, Constructors & F1 Legends" },
-  "WWE/WWF": { icon: "🤼", color: "#ec4899", desc: "WrestleMania, Royal Rumble, Attitude Era & Icons" },
-  UFC: { icon: "🥊", color: "#f97316", desc: "Championship fights, PPVs, knockouts & Octagon history" },
+  Cricket: { icon: "CR", color: "#71e6ff", desc: "ICC World Cups, IPL, Ashes & T20 records" },
+  Football: { icon: "FB", color: "#62e6a4", desc: "FIFA World Cup, UEFA Champions League, Premier League" },
+  Basketball: { icon: "BB", color: "#fbbf24", desc: "NBA Finals, Playoff thrillers & Olympic hoops" },
+  "Formula 1": { icon: "F1", color: "#ff6b7a", desc: "Grand Prix milestones, Constructors & F1 Legends" },
+  "WWE/WWF": { icon: "WW", color: "#ec4899", desc: "WrestleMania, Royal Rumble, Attitude Era & Icons" },
+  UFC: { icon: "UFC", color: "#f97316", desc: "Championship fights, PPVs, knockouts & Octagon history" },
 };
 
 export const TOURNAMENTS_BY_SPORT: Record<Sport, string[]> = {

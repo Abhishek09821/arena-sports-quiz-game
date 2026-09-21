@@ -1,11 +1,11 @@
 /**
  * Centralized Persistent Seen Question & Answer Registry
  * Tracks questions and answers seen across all game modes (Classic, Challenge, Sprint, Multiplayer)
- * in localStorage to guarantee zero question repeats across 100+ game sessions.
+ * in localStorage across sessions on this browser. History is never silently evicted.
  */
 
 const SEEN_REGISTRY_KEY = "arena_seen_history_v2";
-const MAX_SEEN_CAPACITY = 3000;
+
 
 export interface SeenItem {
   stem: string;
@@ -21,7 +21,7 @@ interface StoredRegistry {
 }
 
 /**
- * Normalizes question text into a canonical 35-45 char stem for robust fuzzy deduplication
+ * Normalizes question text into a canonical full-length stem for robust fuzzy deduplication
  */
 export function canonicalizeStem(questionText: string): string {
   if (!questionText) return "";
@@ -29,8 +29,7 @@ export function canonicalizeStem(questionText: string): string {
     .toLowerCase()
     .replace(/^(which|who|what|where|when|in which|during the|in the|in|at the|at)\s+/i, "")
     .replace(/^(indian premier league|ipl|uefa champions league|champions league|fifa world cup|world cup|premier league|la liga|wrestlemania|royal rumble|summerslam|formula 1|f1|nba finals|nba)\s*,?\s*/i, "")
-    .replace(/[^a-z0-9]/g, "")
-    .slice(0, 45);
+    .replace(/[^a-z0-9]/g, "");
 }
 
 /**
@@ -58,7 +57,7 @@ function readRegistry(): StoredRegistry {
       hashes: Array.isArray(parsed.hashes) ? parsed.hashes : [],
     };
   } catch {
-    return { stems: [], answers: [], hashes: [] };
+    throw new Error("Question history could not be read. Restore browser storage before starting a new round.");
   }
 }
 
@@ -68,22 +67,16 @@ function readRegistry(): StoredRegistry {
 function writeRegistry(registry: StoredRegistry): void {
   if (typeof window === "undefined") return;
   try {
-    // Keep within MAX_SEEN_CAPACITY to avoid quota issues
-    const trimmed: StoredRegistry = {
-      stems: registry.stems.slice(-MAX_SEEN_CAPACITY),
-      answers: registry.answers.slice(-MAX_SEEN_CAPACITY),
-      hashes: registry.hashes.slice(-MAX_SEEN_CAPACITY),
-    };
-    localStorage.setItem(SEEN_REGISTRY_KEY, JSON.stringify(trimmed));
-  } catch (err) {
-    console.warn("[SeenRegistry] Unable to persist seen history to localStorage:", err);
+    localStorage.setItem(SEEN_REGISTRY_KEY, JSON.stringify(registry));
+  } catch {
+    throw new Error("Question history could not be saved. Enable browser storage before starting another round.");
   }
 }
 
 /**
  * Get the most recent seen question stems to pass as exclusion list to API
  */
-export function getSeenStems(limit = 150): string[] {
+export function getSeenStems(limit = Infinity): string[] {
   const reg = readRegistry();
   return reg.stems.slice(-limit);
 }
@@ -113,7 +106,7 @@ export function recordQuestionsAsSeen(
   if (typeof window === "undefined" || !questions || questions.length === 0) return;
 
   const reg = readRegistry();
-  const stemSet = new Set(reg.stems);
+  const stemSet = new Set(reg.stems.map(canonicalizeStem));
   const ansSet = new Set(reg.answers);
   const hashSet = new Set(reg.hashes);
 
@@ -123,7 +116,7 @@ export function recordQuestionsAsSeen(
     const stem = canonicalizeStem(q.question);
     if (stem && !stemSet.has(stem)) {
       stemSet.add(stem);
-      reg.stems.push(stem);
+      reg.stems.push(q.question);
     }
 
     // Resolve answer text
@@ -159,7 +152,7 @@ export function isQuestionSeen(questionText: string): boolean {
   if (!questionText) return false;
   const stem = canonicalizeStem(questionText);
   const reg = readRegistry();
-  return reg.stems.includes(stem);
+  return reg.stems.some(s => { const old = canonicalizeStem(s); return old === stem || (old.length >= 35 && stem.startsWith(old)); });
 }
 
 /**

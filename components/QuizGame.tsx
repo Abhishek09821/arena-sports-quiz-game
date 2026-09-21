@@ -1,5 +1,6 @@
 "use client";
 
+import { useSportTheme } from "@/components/ThemeProvider";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronRight, X, Volume2, Flame } from "lucide-react";
@@ -56,6 +57,7 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
     next,
   } = useQuizStore();
 
+  useSportTheme(useQuizStore(s => s.sport));
   const q = questions[index];
   const timeLimit = q ? getTimeLimit(q.difficulty) : 30;
   const [time, setTime] = useState(timeLimit);

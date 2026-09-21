@@ -1,5 +1,7 @@
 "use client";
 
+import { useSportTheme } from "@/components/ThemeProvider";
+
 import { useState, Suspense, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
@@ -50,6 +52,7 @@ function IdolContent() {
   const paramSport = searchParams.get("sport") as Sport;
   const initialSport = SPORT_LIST.includes(paramSport) ? paramSport : "Cricket";
   const [sport, setSport] = useState<Sport>(initialSport);
+  useSportTheme(sport);
   const [selectedIdol, setSelectedIdol] = useState<string>("");
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
   const [count, setCount] = useState(10);
@@ -110,7 +113,7 @@ function IdolContent() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const excludeStems = getSeenStems(150);
+      const excludeStems = getSeenStems();
       const excludeAnswers = getSeenAnswers(80);
 
       const res = await fetch("/api/quiz/generate", {

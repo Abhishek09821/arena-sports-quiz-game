@@ -1,5 +1,6 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import ArenaHeader from "@/components/ArenaHeader";
 import AuthModal from "@/components/AuthModal";
 import { AuthProvider } from "@/components/AuthContext";
@@ -7,11 +8,11 @@ import { AuthProvider } from "@/components/AuthContext";
 export const metadata: Metadata = {
   title: "Arena — Premium Sports Quiz",
   description:
-    "Test your sports knowledge across 8 sports from 1990 to 2026. Fast gameplay, premium UI, and competitive modes.",
+    "Test your sports knowledge across 6 sports from 1975 to 2026. Fast gameplay, premium UI, and competitive modes.",
   keywords: ["sports quiz", "trivia", "cricket", "football", "basketball", "tennis", "formula 1", "arena"],
   openGraph: {
     title: "Arena — Premium Sports Quiz",
-    description: "Test your sports knowledge. 8 sports. 1990–2026. Multiple game modes.",
+    description: "Test your sports knowledge. 6 sports. 1975–2026. Multiple game modes.",
     type: "website",
   },
   icons: {
@@ -33,28 +34,16 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <AuthProvider>
+        <ThemeProvider><AuthProvider>
           <div className="min-h-screen relative overflow-hidden">
-            {/* Animated Background Mesh */}
-            <div className="arena-bg-mesh">
-              <div className="arena-orb arena-orb--1" />
-              <div className="arena-orb arena-orb--2" />
-              <div className="arena-orb arena-orb--3" />
-              <div className="arena-orb arena-orb--4" />
-            </div>
-
-            {/* Subtle Grid Overlay */}
             <div className="arena-grid-bg" />
-
-            {/* Noise */}
-            <div className="noise" />
 
             {/* Header & Content */}
             <ArenaHeader />
             <AuthModal />
             {children}
           </div>
-        </AuthProvider>
+        </AuthProvider></ThemeProvider>
       </body>
     </html>
   );

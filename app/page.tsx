@@ -1,5 +1,7 @@
 "use client";
 
+import { useTheme } from "@/components/ThemeProvider";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, useInView } from "motion/react";
@@ -49,7 +51,7 @@ const modes = [
 const stats = [
   { icon: <Swords size={16} />, value: "6", label: "Sports", color: "#00d4ff" },
   { icon: <Calendar size={16} />, value: "1975–2026", label: "Coverage", color: "#a855f7" },
-  { icon: <HelpCircle size={16} />, value: "AI Generated", label: "Questions", color: "#22d37e" },
+  { icon: <HelpCircle size={16} />, value: "Every round", label: "Questions", color: "#22d37e" },
   { icon: <Users size={16} />, value: "3", label: "Game Modes", color: "#f59e0b" },
 ];
 
@@ -72,6 +74,7 @@ function AnimatedSection({ children, className, delay = 0 }: { children: React.R
 
 export default function Home() {
   const router = useRouter();
+  const { selectSport } = useTheme();
   const { user, requireAuth } = useAuth();
   const [homeCode, setHomeCode] = useState("");
   const sportsRef = useRef<HTMLDivElement>(null);
@@ -89,7 +92,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
-            Premium Sports Quiz Platform
+            THE SPORTS KNOWLEDGE ARENA
           </motion.div>
 
           {/* Title — staggered word reveal */}
@@ -119,9 +122,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
           >
-            Test your sports knowledge across eight disciplines. Fast
-            gameplay, premium feedback, and competition modes that
-            actually feel competitive.
+            Six sports. Three ways to compete. Beat the buzzer, challenge your friends, or prove how well you know your idol.
           </motion.p>
 
           {/* CTA Row */}
@@ -327,6 +328,7 @@ export default function Home() {
                   data-sport={sport}
                   onClick={(e) => {
                     audio.select();
+                    selectSport(sport);
                     if (!user) {
                       e.preventDefault();
                       requireAuth(`/idol?sport=${encodeURIComponent(sport)}`);
@@ -346,7 +348,7 @@ export default function Home() {
                       {sport === "Football" ? "Football (Soccer)" : sport}
                     </h3>
                     <div className="text-[11px] text-arena-muted mt-0.5 flex items-center gap-1">
-                      {sport === "Football" ? "FIFA & Clubs" : "1990–2026"}
+                      {sport === "Football" ? "FIFA & Clubs" : "1975–2026"}
                       <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-60 transition-opacity" />
                     </div>
                   </div>

@@ -1,8 +1,9 @@
-import { type Sport, type Difficulty, DECADE_OPTIONS, type DecadeOption } from "@/data/questions";
-import { generateAIQuestions } from "./ai_question_generator";
+import { type Sport, type Difficulty, DECADE_OPTIONS, SPORT_LIST, DIFFICULTY_LIST, IDOL_BY_SPORT, TOURNAMENTS_BY_SPORT, type DecadeOption } from "@/data/questions";
+import { generateAIQuestions, reviewAIQuestions } from "./ai_question_generator";
 import {
   validateQuestion,
   type ValidatedQuestion,
+  type RawGeneratedQuestion,
   normalizeQuestionText,
 } from "./question_validator";
 import {
@@ -22,6 +23,7 @@ export interface CreateQuizRequest {
   excludeAnswers?: string[];
   decade?: DecadeOption;
   idol?: string;
+  candidates?: RawGeneratedQuestion[];
 }
 
 export interface QuizDeckResponse {
@@ -76,140 +78,55 @@ export function randomizeQuestionOptions(q: ValidatedQuestion): ValidatedQuestio
   };
 }
 
-/**
- * Orchestrates personalized quiz generation on-the-fly via AI.
- * ZERO DATABASE PERSISTENCE for questions: questions are dynamically synthesized
- * and never written to Supabase or any database, eliminating stale duplicate pools.
- * 
- * Incorporates Strict Self-Auditing & Quality Gates:
- * - 0 intra-deck duplicate questions or duplicate answers
- * - 0 repeats against user historical seen questions (up to 1000 unique questions over 100 games)
- * - 100% tournament & difficulty compliance
- */
-export async function generatePersonalizedQuiz(params: CreateQuizRequest): Promise<QuizDeckResponse> {
-  const { sport, difficulty, count, mode = "classic", category, excludeStems = [], excludeAnswers = [], decade, idol } = params;
-
-  // Resolve decade range for validation
-  let decadeRange: [number, number] | undefined;
-  if (decade && decade !== "all") {
-    const found = DECADE_OPTIONS.find((d) => d.value === decade);
-    if (found) {
-      decadeRange = [found.range[0], found.range[1]];
-    }
+/** Selection checks, independent review, bounded replacement and final deck audit. */
+export async function generatePersonalizedQuiz(params: CreateQuizRequest, services = { generate: generateAIQuestions, review: reviewAIQuestions }): Promise<QuizDeckResponse> {
+  const { sport, difficulty, count, mode = "classic", category, decade, idol } = params;
+  if (sport !== "All Sports" && !SPORT_LIST.includes(sport)) throw new Error("Choose a supported sport.");
+  if (difficulty !== "Mixed" && !DIFFICULTY_LIST.includes(difficulty)) throw new Error("Choose a supported difficulty.");
+  if (!Number.isInteger(count) || count < 1 || count > 30) throw new Error("Choose between 1 and 30 questions.");
+  if (mode === "idol" && (sport === "All Sports" || !IDOL_BY_SPORT[sport]?.some(p => p.name === idol))) {
+    throw new Error("Choose an idol from the selected sport.");
   }
-
-  // Map mode
-  const normalizedMode: "classic" | "challenge" | "sprint" | "multiplayer" | "idol" =
-    mode === "buzzer" || mode === "multiplayer"
-      ? "multiplayer"
-      : mode === "sprint"
-      ? "sprint"
-      : mode === "challenge"
-      ? "challenge"
-      : mode === "idol"
-      ? "idol"
-      : "classic";
-
-  const auditContext: DeckAuditContext = {
-    sport,
-    difficulty,
-    category,
-    excludeStems,
-    excludeAnswers,
-  };
-
-  const collectedQuestions: ValidatedQuestion[] = [];
-  const seenRoundStems = new Set<string>();
-  const seenRoundAnswers = new Set<string>();
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  while (collectedQuestions.length < count && attempts < maxAttempts) {
-    attempts++;
-    const needed = count - collectedQuestions.length;
-
-    const rawBatch = await generateAIQuestions({
-      sport,
-      difficulty,
-      count: needed,
-      category,
-      mode: normalizedMode,
-      excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
-      excludeAnswers: [...excludeAnswers, ...Array.from(seenRoundAnswers)],
-      decade,
-      idol,
-    });
-
-    for (const raw of rawBatch) {
-      if (collectedQuestions.length >= count) break;
-
-      const validation = validateQuestion(raw, category, difficulty, decadeRange);
-      if (!validation.valid || !validation.question) {
-        continue;
-      }
-
-      const validated = validation.question;
-
-      // Strict Deck Audit against current deck, past games, and tournament rules
-      const audit = auditCandidateQuestion(validated, collectedQuestions, auditContext);
-      if (!audit.passed) {
-        continue;
-      }
-
-      seenRoundStems.add(validated.question.slice(0, 45));
-      seenRoundAnswers.add(validated.correctAnswerText);
-      collectedQuestions.push(validated);
-    }
-  }
-
-  // Top up if any slot remaining after main loop
-  let topUpAttempts = 0;
-  while (collectedQuestions.length < count && topUpAttempts < 3) {
-    topUpAttempts++;
-    const rawTopUp = await generateAIQuestions({
-      sport,
-      difficulty,
-      count: count - collectedQuestions.length,
-      category,
-      mode: normalizedMode,
-      excludeStems: [...excludeStems, ...Array.from(seenRoundStems)],
-      excludeAnswers: [...excludeAnswers, ...Array.from(seenRoundAnswers)],
-      decade,
-      idol,
-    });
-
-    for (const raw of rawTopUp) {
-      if (collectedQuestions.length >= count) break;
-      const v = validateQuestion(raw, category, difficulty, decadeRange);
-      if (v.valid && v.question) {
-        const audit = auditCandidateQuestion(v.question, collectedQuestions, auditContext);
-        if (audit.passed) {
-          seenRoundStems.add(v.question.question.slice(0, 45));
-          seenRoundAnswers.add(v.question.correctAnswerText);
-          collectedQuestions.push(v.question);
-        }
+  if (category && (sport === "All Sports" || !TOURNAMENTS_BY_SPORT[sport].includes(category))) throw new Error("Choose a tournament from the selected sport.");
+  const decadeOption = DECADE_OPTIONS.find(d => d.value === decade);
+  if (decade && !decadeOption) throw new Error("Choose a valid decade.");
+  const decadeRange: [number, number] | undefined = decade && decade !== "all" && decadeOption ? [...decadeOption.range] : undefined;
+  const excludeStems = (params.excludeStems || []).filter((s): s is string => typeof s === "string");
+  const context: DeckAuditContext = { sport, difficulty, category, idol, excludeStems };
+  const accepted: ValidatedQuestion[] = [];
+  const rejected: string[] = [];
+  const deadline = Date.now() + 90000;
+  const normalizedMode = mode === "buzzer" ? "multiplayer" : mode;
+  // Fixed difficulty slots stop a Mixed deck from silently becoming ten easy questions.
+  const slots: Difficulty[] = Array.from({ length: count }, (_, i) => difficulty === "Mixed" ? (["Medium", "Hard", "Easy"] as const)[i % 3] : difficulty);
+  for (let attempt = 0; attempt < 5 && accepted.length < count; attempt++) {
+    const remaining = [...slots];
+    for (const q of accepted) remaining.splice(remaining.indexOf(q.difficulty), 1);
+    for (const target of [...new Set(remaining)]) {
+      const needed = remaining.filter(d => d === target).length;
+      const options = { deadline, sport, difficulty: target, count: needed, category, decade, idol, mode: normalizedMode, excludeStems: [...excludeStems, ...accepted.map(q => q.question), ...rejected] };
+      const raw = attempt === 0 && params.candidates ? params.candidates.filter(q => q?.difficulty === target) : await services.generate(options);
+      const candidates = raw.filter(q => {
+        const result = validateQuestion(q, category, target, decadeRange);
+        const ok = Number.isInteger(q?.year) && typeof q?.explanation === "string" && q.explanation.trim().length > 0 && result.valid && result.question && auditCandidateQuestion(result.question, accepted, context).passed;
+        if (!ok && typeof q?.question === "string") rejected.push(q.question);
+        return ok;
+      });
+      const reviewed = await services.review(options, candidates);
+      const approved = new Set(reviewed.map(q => JSON.stringify(q)));
+      let filled = 0;
+      for (const candidate of candidates) {
+        if (!approved.has(JSON.stringify(candidate))) { rejected.push(candidate.question); continue; }
+        if (filled >= needed) break;
+        const result = validateQuestion(candidate, category, target, decadeRange);
+        if (result.question && auditCandidateQuestion(result.question, accepted, context).passed) {
+          accepted.push(result.question);
+          filled++;
+        } else rejected.push(candidate.question);
       }
     }
   }
-
-  // Final Quality Seal: Audit the entire compiled deck
-  const finalAudit = auditDeck(collectedQuestions, auditContext, count);
-  const certifiedDeck = finalAudit.validQuestions;
-
-  // Randomize options & verify correct answer positions
-  const randomizedOptionsDeck = certifiedDeck.map((q) => randomizeQuestionOptions(q));
-
-  // Randomize question order
-  const finalDeck = shuffleArray(randomizedOptionsDeck);
-
-  // Generate lightweight session identifier (no DB writes for questions)
-  const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-  return {
-    sessionId,
-    questions: finalDeck,
-    sport,
-    difficulty,
-    mode,
-  };
+  const audit = auditDeck(accepted, context, count);
+  if (!audit.passed) throw new Error(`Could not assemble ${count} fresh questions matching your selection after quality checks. Please retry or choose a different topic.`);
+  return { sessionId: `session-${crypto.randomUUID()}`, questions: shuffleArray(audit.validQuestions.map(randomizeQuestionOptions)), sport, difficulty, mode };
 }

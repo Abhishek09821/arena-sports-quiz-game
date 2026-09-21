@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { generatePersonalizedQuiz } from "@/lib/services/question_manager";
-import { getOptionalUser } from "@/lib/auth/server_auth";
+import { generateForRequest } from "@/lib/services/personalized_request";
 import { type Sport, type Difficulty } from "@/data/questions";
 
 export async function POST(req: Request) {
   try {
-    const userAuth = await getOptionalUser(req);
     const body = await req.json().catch(() => ({}));
 
     const sport = (body.sport || "All Sports") as Sport | "All Sports";
@@ -18,8 +16,7 @@ export async function POST(req: Request) {
     const decade = body.decade || undefined;
     const idol = body.idol || undefined;
 
-    const deck = await generatePersonalizedQuiz({
-      userId: userAuth.userId,
+    const deck = await generateForRequest(req, {
       sport,
       difficulty,
       count,

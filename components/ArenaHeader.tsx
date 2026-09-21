@@ -1,9 +1,10 @@
 "use client";
 
+import { useTheme } from "@/components/ThemeProvider";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { audio } from "@/lib/audio";
-import { Gamepad2, Menu, X, User, LogOut, Shield, LogIn, Volume2, VolumeX } from "lucide-react";
+import { Sun, Moon, Gamepad2, Menu, X, User, LogOut, Shield, LogIn, Volume2, VolumeX } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthContext";
@@ -16,6 +17,7 @@ const links = [
 
 export default function ArenaHeader() {
   const pathname = usePathname();
+  const { theme, toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -63,6 +65,7 @@ export default function ArenaHeader() {
               return (
                 <Link
                   key={link.href}
+                  aria-current={active ? "page" : undefined}
                   href={link.href}
                   className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-250 relative ${
                     active
@@ -160,11 +163,16 @@ export default function ArenaHeader() {
             )}
           </div>
 
+          <button type="button" onClick={toggleTheme} className="arena-theme-toggle" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+
           {/* Mobile hamburger */}
           <button
             className="sm:hidden w-9 h-9 rounded-xl border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.06] transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
+            aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X size={16} /> : <Menu size={16} />}
           </button>

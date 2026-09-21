@@ -105,7 +105,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
   // 2. Sport validation
   const validSports = new Set(SPORT_LIST);
   let resolvedSport: Sport = "Cricket";
-  const rawSportLower = (q.sport || "").toLowerCase().trim();
+  const rawSportLower = (typeof q.sport === "string" ? q.sport : "").toLowerCase().trim();
   const normalizedSportKey = rawSportLower.replace(/\s*\/\s*/g, "/").replace(/\s+/g, " ");
 
   const sportAliasMap: Record<string, Sport> = {
@@ -176,7 +176,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
       "lawrence taylor", "reggie white", "don shula", "andy reid", "lombardi trophy",
       "pro football hall of fame"
     ];
-    const combinedContent = `${q.question || ""} ${(q.options || []).join(" ")} ${q.explanation || ""}`.toLowerCase();
+    const combinedContent = `${q.question || ""} ${(Array.isArray(q.options) ? q.options : []).join(" ")} ${q.explanation || ""}`.toLowerCase();
     for (const term of nflTerms) {
       const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(`\\b${escapedTerm}\\b`, "i");
@@ -191,7 +191,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
   const validDiffs = new Set(DIFFICULTY_LIST);
   let resolvedDiff: Difficulty = "Medium";
   if (!q.difficulty || typeof q.difficulty !== "string" || !validDiffs.has(q.difficulty as Difficulty)) {
-    const matched = DIFFICULTY_LIST.find((d) => d.toLowerCase() === (q.difficulty || "").toLowerCase());
+    const matched = DIFFICULTY_LIST.find((d) => d.toLowerCase() === (typeof q.difficulty === "string" ? q.difficulty : "").toLowerCase());
     if (matched) {
       resolvedDiff = matched;
     } else {
@@ -235,7 +235,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
   let answerIndex = -1;
   let answerText = "";
 
-  if (typeof q.answer === "number" && q.answer >= 0 && q.answer <= 3) {
+  if (typeof q.answer === "number" && Number.isInteger(q.answer) && q.answer >= 0 && q.answer <= 3) {
     answerIndex = q.answer;
     answerText = cleanedOptions[answerIndex] || "";
   } else if (typeof q.answer === "string" && cleanedOptions.length === 4) {
@@ -281,8 +281,8 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
     : `${resolvedSport} Trivia`;
 
   if (targetTournament && !targetTournament.startsWith("All") && targetTournament !== "All Tournaments" && targetTournament !== "All Events" && targetTournament !== "All Grand Prix") {
-    finalCategory = targetTournament;
-    const combinedContent = `${q.question || ""} ${(q.options || []).join(" ")} ${q.explanation || ""}`.toLowerCase();
+    if (normalizeQuestionText(finalCategory) !== normalizeQuestionText(targetTournament)) errors.push("Tournament category does not match selection.");
+    const combinedContent = `${q.question || ""} ${(Array.isArray(q.options) ? q.options : []).join(" ")} ${q.explanation || ""}`.toLowerCase();
     const tLower = targetTournament.toLowerCase();
 
     // Check for explicit cross-tournament contaminants

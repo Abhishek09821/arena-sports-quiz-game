@@ -1,10 +1,12 @@
-import { ValidatedQuestion, extractQuestionStem, normalizeQuestionText } from "./question_validator";
+import { canonicalizeStem } from "@/lib/seen_history";
+import { ValidatedQuestion, normalizeQuestionText } from "./question_validator";
 import { type Difficulty, type Sport } from "@/data/questions";
 
 export interface DeckAuditContext {
   sport: Sport | "All Sports";
   difficulty: Difficulty | "Mixed";
   category?: string;
+  idol?: string;
   excludeStems?: string[];
   excludeAnswers?: string[];
 }
@@ -24,13 +26,7 @@ export interface DeckAuditReport {
  * Fuzzy canonical comparison helper
  */
 function canonicalizeText(text: string): string {
-  if (!text) return "";
-  return text
-    .toLowerCase()
-    .replace(/^(which|who|what|where|when|in which|during the|in the|in|at the|at)\s+/i, "")
-    .replace(/^(indian premier league|ipl|uefa champions league|champions league|fifa world cup|world cup|premier league|la liga|wrestlemania|royal rumble|summerslam|formula 1|f1|nba finals|nba)\s*,?\s*/i, "")
-    .replace(/[^a-z0-9]/g, "")
-    .slice(0, 45);
+  return canonicalizeStem(text);
 }
 
 /**
@@ -58,16 +54,7 @@ export function auditCandidateQuestion(
     }
   }
 
-  // 3. Intra-deck Answer Text Uniqueness (Zero duplicate answer heroes/teams within a single 10-pack)
   const candidateAnswerNorm = normalizeQuestionText(q.correctAnswerText);
-  for (const existing of currentDeck) {
-    const existingAnsNorm = normalizeQuestionText(existing.correctAnswerText);
-    if (candidateAnswerNorm && existingAnsNorm && candidateAnswerNorm === existingAnsNorm) {
-      reasons.push(`Duplicate correct answer "${q.correctAnswerText}" already used by another question in this deck.`);
-      break;
-    }
-  }
-
   // 4. Cross-Game Historical Exclusions (Zero Repeat Guarantee across user sessions)
   if (context.excludeStems && context.excludeStems.length > 0) {
     for (const rawExcluded of context.excludeStems) {
@@ -79,14 +66,12 @@ export function auditCandidateQuestion(
     }
   }
 
-  if (context.excludeAnswers && context.excludeAnswers.length > 0) {
-    for (const rawAns of context.excludeAnswers) {
-      const exNorm = normalizeQuestionText(rawAns);
-      if (exNorm && candidateAnswerNorm && (candidateAnswerNorm === exNorm || candidateAnswerNorm.includes(exNorm) || exNorm.includes(candidateAnswerNorm))) {
-        reasons.push(`Correct answer "${q.correctAnswerText}" matches an excluded recent answer.`);
-        break;
-      }
-    }
+  if (context.sport !== "All Sports" && q.sport !== context.sport) reasons.push("Selected sport mismatch.");
+  if (context.idol && !normalizeQuestionText(q.question).includes(normalizeQuestionText(context.idol))) {
+    reasons.push("Question must explicitly concern the selected idol.");
+  }
+  if (context.category && !context.category.startsWith("All") && normalizeQuestionText(q.category) !== normalizeQuestionText(context.category)) {
+    reasons.push("Selected tournament mismatch.");
   }
 
   // 5. Options Quality Check

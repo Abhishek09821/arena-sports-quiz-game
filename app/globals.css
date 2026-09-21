@@ -1090,3 +1090,78 @@
     height: 6px;
   }
 }
+
+/* Arena / solid surfaces, scoreboards and hard edges. */
+:root {
+  color-scheme: dark;
+  --color-arena-bg: #141615;
+  --color-arena-panel: #1e211f;
+  --color-arena-panel2: #262b27;
+  --color-arena-surface: #303630;
+  --color-arena-text: #f5f5e9;
+  --color-arena-muted: #adb6aa;
+  --color-arena-line: #626c61;
+  --color-arena-accent: #d2f65a;
+  --color-arena-accent2: var(--color-arena-accent);
+  --arena-shadow: #060806;
+}
+:root[data-sport="Cricket"] { --color-arena-accent: #d2f65a; }
+:root[data-sport="Football"] { --color-arena-accent: #68e6b2; }
+:root[data-sport="Basketball"] { --color-arena-accent: #ffb568; }
+:root[data-sport="Formula 1"] { --color-arena-accent: #ff8585; }
+:root[data-sport="WWE/WWF"] { --color-arena-accent: #c4a3ff; }
+:root[data-sport="UFC"] { --color-arena-accent: #f59ac1; }
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-arena-bg: #eeeee4;
+  --color-arena-panel: #fffff6;
+  --color-arena-panel2: #e5e8db;
+  --color-arena-surface: #d9dfd0;
+  --color-arena-text: #1b211b;
+  --color-arena-muted: #525d50;
+  --color-arena-line: #687363;
+  --arena-shadow: #253022;
+  --color-arena-accent: #426000;
+  --color-arena-good: #137245;
+  --color-arena-bad: #bd2940;
+  --color-arena-warn: #885500;
+}
+:root[data-theme="light"][data-sport="Cricket"] { --color-arena-accent: #426000; }
+:root[data-theme="light"][data-sport="Football"] { --color-arena-accent: #096540; }
+:root[data-theme="light"][data-sport="Basketball"] { --color-arena-accent: #974100; }
+:root[data-theme="light"][data-sport="Formula 1"] { --color-arena-accent: #b52d38; }
+:root[data-theme="light"][data-sport="WWE/WWF"] { --color-arena-accent: #6c38a6; }
+:root[data-theme="light"][data-sport="UFC"] { --color-arena-accent: #a12f60; }
+.arena-grid-bg { opacity: .035; background-image: linear-gradient(var(--color-arena-text) 1px, transparent 1px), linear-gradient(90deg, var(--color-arena-text) 1px, transparent 1px); background-size: 48px 48px; }
+.arena-card, .arena-card:hover {
+  background: var(--color-arena-panel);
+  border: 2px solid var(--color-arena-line);
+  border-radius: 5px;
+  box-shadow: 5px 5px 0 var(--arena-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.arena-card::before, .arena-card-shine::after, .arena-btn-primary::after { display: none; }
+.arena-card.arena-tile { border-radius: 3px; box-shadow: 2px 2px 0 var(--arena-shadow); }
+.arena-tile[data-active="true"], .arena-tile[aria-pressed="true"] { border-color: var(--color-arena-accent); background: color-mix(in srgb, var(--color-arena-accent) 12%, var(--color-arena-panel)); }
+.arena-btn, .arena-input, .arena-select { border-radius: 3px; border: 2px solid var(--color-arena-line); }
+.arena-btn { font-weight: 800; box-shadow: 3px 3px 0 var(--arena-shadow); }
+.arena-btn-primary, .arena-btn-primary:hover { background: var(--color-arena-accent); color: var(--color-arena-bg); border-color: var(--color-arena-accent); box-shadow: 4px 4px 0 var(--arena-shadow); }
+.arena-btn-ghost, .arena-btn-ghost:hover { background: var(--color-arena-panel); color: var(--color-arena-text); }
+.arena-btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--arena-shadow); }
+.arena-input, .arena-select { background: var(--color-arena-panel); color: var(--color-arena-text); }
+.arena-input::placeholder { color: var(--color-arena-muted); }
+.arena-header, .arena-header[data-scrolled="true"] { background: var(--color-arena-panel); border-bottom: 2px solid var(--color-arena-line); backdrop-filter: none; box-shadow: none; }
+.arena-header > div { gap: 12px; }
+.arena-header nav { margin-left: auto; margin-right: auto; }
+.arena-header nav a { border-radius: 3px; font-size: 12px; letter-spacing: .035em; text-transform: uppercase; }
+.arena-nav-active { background: var(--color-arena-accent); color: var(--color-arena-bg) !important; }
+.arena-nav-active::after { display: none; }
+.arena-theme-toggle { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; border: 2px solid var(--color-arena-line); border-radius: 3px; color: var(--color-arena-text); background: var(--color-arena-panel); }
+.arena-gradient-text { background: none; -webkit-text-fill-color: var(--color-arena-accent); color: var(--color-arena-accent); }
+.arena-eyebrow { color: var(--color-arena-accent); font-weight: 800; letter-spacing: .15em; }
+.arena-pill { border-radius: 3px; }
+h1, h2, h3 { text-wrap: balance; }
+:focus-visible { outline: 3px solid var(--color-arena-accent); outline-offset: 4px; }
+@media (max-width: 760px) { .arena-header nav a { padding-inline: 8px; font-size: 10px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

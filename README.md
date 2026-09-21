@@ -168,3 +168,30 @@ arena-sports-quiz-mvp/
 ---
 
 
+
+### Question quality and theme update
+
+Apply `supabase/migrations/003_question_history.sql` before deploying this update.
+Authenticated generation now requires the history table and reservation function;
+it stops with an actionable error if history cannot be read or saved. History is
+append-only, shared across modes, and reserves exact normalized questions atomically
+across tabs. Anonymous play uses browser history, which is no longer silently trimmed.
+Clearing browser storage still removes anonymous history. Older questions already
+removed by previous history limits cannot be reconstructed.
+
+Every generated deck passes selection validation, a separate AI factual/difficulty
+review, replacement retries, and a final count/duplicate audit. Mixed decks contain
+Medium, Hard and Easy slots. Unsupported or exhausted selections return an error;
+the app no longer substitutes generic offline questions or a shorter deck. Imported,
+saved and shared challenges are reviewed and repaired at play time, so repeated or
+rejected questions can differ from the original challenge. Multiplayer checks the
+joining player's browser history before starting and replaces an overlapping deck.
+
+AI review is an additional quality gate, **not independent source verification**.
+It cannot establish perfect factual accuracy or detect every semantic paraphrase.
+Provider access is required, and review adds latency and API usage. Historical
+selection checks and replacement logic are tested using deterministic provider doubles;
+live provider accuracy must also be sampled before release.
+
+The interface supports per-sport accents and a persistent light/dark preference.
+Use `npm test`, `npx tsc --noEmit`, and `npm run build` for validation.

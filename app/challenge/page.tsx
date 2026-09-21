@@ -1,5 +1,7 @@
 "use client";
 
+import { useSportTheme } from "@/components/ThemeProvider";
+
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
@@ -64,7 +66,7 @@ export interface SavedChallenge {
 const SAVED_CHALLENGES_STORAGE_KEY = "arena_saved_challenges_v1";
 
 function ChallengeContent() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const searchParams = useSearchParams();
 
   // Builder State
@@ -114,6 +116,7 @@ function ChallengeContent() {
   const [manualAnswer, setManualAnswer] = useState(0);
   const [manualExp, setManualExp] = useState("");
   const [manualSport, setManualSport] = useState<Sport>("Cricket");
+  useSportTheme(activeTab === "manual" ? manualSport : aiSport);
   const [manualDiff, setManualDiff] = useState<Difficulty>("Medium");
 
   // Edit Modal State
@@ -238,31 +241,30 @@ function ChallengeContent() {
     }
   };
 
-  const playLoadedChallenge = () => {
-    if (!loadedChallenge || loadedQuestions.length === 0) return;
-    audio.unlock();
-    recordQuestionsAsSeen(loadedQuestions);
-    useQuizStore.getState().start(loadedQuestions, {
-      sport: (loadedChallenge.sport as Sport) || "All Sports",
-      difficulty: (loadedChallenge.difficulty as Difficulty) || "Mixed",
-      mode: "challenge",
-      sessionId: loadedChallenge.id,
-    });
-    trackEvent("game_started", { mode: "challenge", code: loadedChallenge.code, count: loadedQuestions.length });
-    setStarted(true);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const playReviewedChallenge = async (candidates: Question[], sport: string, difficulty: string, sessionId?: string) => {
+    if (isReviewing) return;
+    setIsReviewing(true);
+    try {
+      const response = await fetch("/api/quiz/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ questions: candidates, sport, difficulty, excludeStems: getSeenStems() }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "Unable to review this challenge.");
+      recordQuestionsAsSeen(result.questions);
+      audio.unlock();
+      useQuizStore.getState().start(result.questions, { sport: sport as Sport, difficulty: difficulty as Difficulty, mode: "challenge", sessionId });
+      setStarted(true);
+    } catch (error) { alert(error instanceof Error ? error.message : "Unable to prepare challenge."); }
+    finally { setIsReviewing(false); }
   };
-
+  const playLoadedChallenge = () => {
+    if (loadedChallenge) void playReviewedChallenge(loadedQuestions, loadedChallenge.sport, loadedChallenge.difficulty, loadedChallenge.id);
+  };
   const playSavedChallengeDirectly = (item: SavedChallenge) => {
-    audio.unlock();
-    recordQuestionsAsSeen(item.questions);
-    useQuizStore.getState().start(item.questions, {
-      sport: (item.sport as Sport) || "All Sports",
-      difficulty: (item.difficulty as Difficulty) || "Mixed",
-      mode: "challenge",
-      sessionId: item.id,
-    });
-    trackEvent("game_started", { mode: "challenge", code: item.code, count: item.questions.length });
-    setStarted(true);
+    void playReviewedChallenge(item.questions, item.sport, item.difficulty, item.id);
   };
 
   // Auto-load if code is in URL parameters (?code=XYZ123)
@@ -285,7 +287,7 @@ function ChallengeContent() {
       const activeTournament = selectedTournament !== "All" ? selectedTournament : (aiCategory || undefined);
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           mode: "challenge",
           sport: aiSport,
@@ -293,7 +295,7 @@ function ChallengeContent() {
           category: activeTournament,
           count: 10,
           decade: aiDecade !== "all" ? aiDecade : undefined,
-          excludeStems: getSeenStems(150),
+          excludeStems: getSeenStems(),
           excludeAnswers: getSeenAnswers(80),
         }),
       });
@@ -306,7 +308,7 @@ function ChallengeContent() {
       const final10 = (data.questions as Question[]).slice(0, 10);
       setQuestions(final10);
       setChallengeTitle(`${aiSport} ${activeTournament ? activeTournament : "Arena"} Challenge`);
-      recordQuestionsAsSeen(final10);
+
       audio.correct();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to generate 10 questions with Gemini");
@@ -330,13 +332,13 @@ function ChallengeContent() {
       const activeTournament = selectedTournament !== "All" ? selectedTournament : (aiCategory || undefined);
       const res = await fetch("/api/challenge/generate-question", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           sport: aiSport,
           difficulty: aiDifficulty,
           category: activeTournament,
           excludeStems: [
-            ...getSeenStems(150),
+            ...getSeenStems(),
             ...questions.map((q) => q.question.slice(0, 45)),
           ],
           excludeAnswers: [
@@ -364,7 +366,7 @@ function ChallengeContent() {
       };
 
       setQuestions((prev) => [...prev, newQ]);
-      recordQuestionsAsSeen([newQ]);
+
       audio.correct();
     } catch (err) {
       console.error("[Challenge Single Generation] Error:", err);
@@ -383,13 +385,13 @@ function ChallengeContent() {
       const target = questions[index];
       const res = await fetch("/api/challenge/generate-question", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           sport: target.sport,
           difficulty: target.difficulty,
           category: target.category || (selectedTournament !== "All" ? selectedTournament : undefined),
           excludeStems: [
-            ...getSeenStems(150),
+            ...getSeenStems(),
             ...questions.filter((_, i) => i !== index).map((q) => q.question.slice(0, 45)),
           ],
           excludeAnswers: [
@@ -418,7 +420,7 @@ function ChallengeContent() {
         next[index] = updated;
         return next;
       });
-      recordQuestionsAsSeen([updated]);
+
       audio.correct();
     } catch (err) {
       console.error("[Challenge Regenerate] Error:", err);
@@ -603,7 +605,7 @@ function ChallengeContent() {
     try {
       const res = await fetch("/api/challenge/save", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           title: challengeTitle,
           sport: questions[0]?.sport || aiSport || "All Sports",
@@ -657,15 +659,7 @@ function ChallengeContent() {
       alert(`A challenge requires strictly 10 questions. Currently you have ${questions.length}/10. Add or generate questions to make it exactly 10.`);
       return;
     }
-    audio.unlock();
-    recordQuestionsAsSeen(questions);
-    useQuizStore.getState().start(questions, {
-      sport: (questions[0]?.sport as Sport) || "All Sports",
-      difficulty: "Mixed",
-      mode: "challenge",
-    });
-    trackEvent("challenge_created", { count: questions.length });
-    setStarted(true);
+    void playReviewedChallenge(questions, questions.every(q => q.sport === questions[0].sport) ? questions[0].sport : "All Sports", "Mixed");
   };
 
   const copyShareLink = (code: string) => {
@@ -681,6 +675,7 @@ function ChallengeContent() {
 
   return (
     <main className="arena-container pb-20">
+      {isReviewing && <div role="status" className="arena-container py-4 text-sm text-arena-accent">Reviewing questions and replacing repeats before your round...</div>}
       <div className="pt-10 pb-6">
         <Link
           href="/"
@@ -714,7 +709,7 @@ function ChallengeContent() {
               className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "ai" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("ai"); audio.click(); }}
             >
-              <Sparkles size={14} /> Gemini AI
+              <Sparkles size={14} /> Generate questions
             </button>
             <button
               className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "play_code" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
@@ -816,7 +811,7 @@ function ChallengeContent() {
                   {(TOURNAMENTS_BY_SPORT[aiSport] || []).map((t) => (
                     <option key={t} value={t} className="bg-arena-panel">{t}</option>
                   ))}
-                  <option value="Custom" className="bg-arena-panel">✏️ Enter Custom Tournament / Topic...</option>
+                  <option value="Custom" className="bg-arena-panel"> Enter Custom Tournament / Topic...</option>
                 </select>
 
                 {selectedTournament === "Custom" && (

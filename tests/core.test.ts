@@ -5,7 +5,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { scoreAnswer, getTimeLimit } from "../lib/scoring";
-import { shuffle, shuffleQuestionOptions, buildGame } from "../lib/quiz";
+import { shuffle, shuffleQuestionOptions, buildGame, resetSessionHistory } from "../lib/quiz";
 import {
   validateQuestion,
   normalizeQuestionText,
@@ -116,8 +116,8 @@ test("Hard gives 20 seconds", () => {
   assertEqual(getTimeLimit("Hard"), 20);
 });
 
-test("Legendary gives 16 seconds", () => {
-  assertEqual(getTimeLimit("Legendary"), 16);
+test("Legendary gives 20 seconds", () => {
+  assertEqual(getTimeLimit("Legendary"), 20);
 });
 
 test("all difficulties have time limits", () => {
@@ -313,12 +313,12 @@ console.log("\n── Option Randomization & Answer Mapping ───");
 
 test("option randomization guarantees 100% correct answer mapping across 100 runs", () => {
   const sample = {
-    sport: "Athletics",
+    sport: "Formula 1",
     difficulty: "Easy",
-    question: "What is the 100m world record set by Usain Bolt in 2009?",
-    options: ["9.58 seconds", "9.63 seconds", "9.69 seconds", "9.72 seconds"],
-    answer: "9.58 seconds",
-    explanation: "Bolt set the record in Berlin.",
+    question: "Who won the Formula 1 World Drivers Championship in 2009?",
+    options: ["Jenson Button", "Sebastian Vettel", "Lewis Hamilton", "Mark Webber"],
+    answer: "Jenson Button",
+    explanation: "Jenson Button won the 2009 championship with Brawn GP.",
   };
 
   const valRes = validateQuestion(sample);
@@ -408,6 +408,7 @@ test("buildGame returns requested count with randomized options", () => {
 });
 
 test("buildGame strictly isolates Football and guarantees 100% FIFA soccer without NFL terms", () => {
+  resetSessionHistory();
   const footballGame = buildGame({ sport: "Football", count: 10 });
   assertEqual(footballGame.length, 10);
   for (const q of footballGame) {
