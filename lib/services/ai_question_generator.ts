@@ -1079,22 +1079,27 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
 
 /**
  * Execute single batch generation via configured providers with automatic mutual failover.
+ * 
+ * API Routing:
+ *   1v1 Multiplayer → Grok (fast, low latency) → Gemini fallback
+ *   Challenge       → Gemini (accuracy)        → Grok fallback
+ *   Know Your Idol  → Gemini (deep knowledge)  → Grok fallback
  */
 async function generateSingleBatch(options: GenerateOptions): Promise<RawGeneratedQuestion[]> {
-  const mode = options.mode || "classic";
+  const mode = options.mode || "challenge";
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
   const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
   const groqModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
   const geminiModel = process.env.AI_MODEL || "gemini-2.5-flash";
 
-  // 1. 1v1 Multiplayer & 60s Sprint -> Try Groq first (high speed), failover to Gemini
-  if (mode === "multiplayer" || mode === "sprint") {
+  // ── 1v1 Multiplayer: Grok primary (speed-optimized), Gemini fallback ──
+  if (mode === "multiplayer") {
     if (groqKey) {
       try {
         return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
       } catch (err) {
-        console.warn(`[AI Generator - Groq for ${mode}]: ${err instanceof Error ? err.message : String(err)}. Engaging Gemini backup.`);
+        console.warn(`[AI Generator - Grok for multiplayer]: ${err instanceof Error ? err.message : String(err)}. Engaging Gemini backup.`);
       }
     }
 
@@ -1103,7 +1108,7 @@ async function generateSingleBatch(options: GenerateOptions): Promise<RawGenerat
         const model = process.env.XAI_MODEL || "grok-beta";
         return await generateViaOpenAICompatible(options, "https://api.x.ai/v1", xaiKey, model);
       } catch (err) {
-        console.warn(`[AI Generator - xAI for ${mode}]: ${err instanceof Error ? err.message : String(err)}.`);
+        console.warn(`[AI Generator - xAI for multiplayer]: ${err instanceof Error ? err.message : String(err)}.`);
       }
     }
 
@@ -1111,18 +1116,18 @@ async function generateSingleBatch(options: GenerateOptions): Promise<RawGenerat
       try {
         return await generateViaGemini(options, geminiKey, geminiModel);
       } catch (err) {
-        console.warn(`[AI Generator - Gemini Backup for ${mode}]: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[AI Generator - Gemini Backup for multiplayer]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
 
-  // 2. Classic & Challenge Modes -> Try Google Gemini first, failover to Groq
-  if (mode === "classic" || mode === "challenge" || !mode) {
+  // ── Challenge Mode: Gemini primary (accuracy-optimized), Grok fallback ──
+  if (mode === "challenge") {
     if (geminiKey) {
       try {
         return await generateViaGemini(options, geminiKey, geminiModel);
       } catch (err) {
-        console.warn(`[AI Generator - Gemini for ${mode}]: ${err instanceof Error ? err.message : String(err)}. Engaging Groq backup.`);
+        console.warn(`[AI Generator - Gemini for challenge]: ${err instanceof Error ? err.message : String(err)}. Engaging Grok backup.`);
       }
     }
 
@@ -1130,12 +1135,31 @@ async function generateSingleBatch(options: GenerateOptions): Promise<RawGenerat
       try {
         return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
       } catch (err) {
-        console.warn(`[AI Generator - Groq Backup for ${mode}]: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[AI Generator - Grok Backup for challenge]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
 
-  // 3. Resilient fallback strictly 1975-2026 if all external providers are offline
+  // ── Know Your Idol: Gemini primary (deep knowledge), Grok fallback ──
+  if (mode === "idol") {
+    if (geminiKey) {
+      try {
+        return await generateViaGemini(options, geminiKey, geminiModel);
+      } catch (err) {
+        console.warn(`[AI Generator - Gemini for idol]: ${err instanceof Error ? err.message : String(err)}. Engaging Grok backup.`);
+      }
+    }
+
+    if (groqKey) {
+      try {
+        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
+      } catch (err) {
+        console.warn(`[AI Generator - Grok Backup for idol]: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  // ── Resilient fallback strictly 1975-2026 if all external providers are offline ──
   return generateFallbackQuestions(options);
 }
 

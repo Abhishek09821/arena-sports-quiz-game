@@ -133,7 +133,7 @@ export default function ResultsScreen({ onPlayAgain }: ResultsScreenProps) {
             transition={{ delay: 0.1 }}
           >
             {isPerfect && <Sparkles size={14} className="text-arena-warn" />}
-            {mode === "sprint" ? "Sprint Complete" : "Round Complete"}
+            Round Complete
           </motion.div>
 
           {/* Score with glow halo */}

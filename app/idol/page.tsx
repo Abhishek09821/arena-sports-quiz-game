@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, Suspense, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
 import {
   SPORT_LIST,
@@ -47,7 +48,10 @@ const diffColors: Record<Difficulty | "Mixed", string> = {
 
 function IdolContent() {
   const { token, user, openAuthModal } = useAuth();
-  const [sport, setSport] = useState<Sport>("Cricket");
+  const searchParams = useSearchParams();
+  const paramSport = searchParams.get("sport") as Sport;
+  const initialSport = SPORT_LIST.includes(paramSport) ? paramSport : "Cricket";
+  const [sport, setSport] = useState<Sport>(initialSport);
   const [selectedIdol, setSelectedIdol] = useState<string>("");
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
   const [selectedDecade, setSelectedDecade] = useState<DecadeOption>("all");

@@ -15,6 +15,8 @@ import {
   Loader2,
   Sparkles,
   Clock,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import Link from "next/link";
 import { io, Socket } from "socket.io-client";
@@ -24,6 +26,7 @@ import { buildGame } from "@/lib/quiz";
 import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
+import { VoiceChatManager, type VoiceState } from "@/lib/webrtc/voice-chat";
 
 type RoomStatus = "idle" | "lobby" | "playing" | "finished";
 type GamePhase = "buzzer" | "answering" | "revealed";
@@ -97,6 +100,12 @@ export default function MultiplayerPage() {
     tournament?: string;
     count?: number;
   } | null>(null);
+
+  // Voice chat state
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [isMicMuted, setIsMicMuted] = useState(true);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceChatRef = useRef<VoiceChatManager | null>(null);
 
   // Synchronized refs
   const socketRef = useRef<Socket | null>(null);
@@ -1006,8 +1015,60 @@ export default function MultiplayerPage() {
   );
 
   // ── Leave Room ───────────────────────────────────────────
+  // ── Voice Chat Initialization ─────────────────────────────
+  // Initialize voice chat when both players are in the lobby or game starts
+  useEffect(() => {
+    const playerCount = Object.keys(players).length;
+    const hasSocket = socketRef.current?.connected;
+
+    // Only initialize when 2 players are present, socket is connected, and voice isn't already active
+    if (playerCount >= 2 && hasSocket && status !== "idle" && !voiceChatRef.current) {
+      const manager = new VoiceChatManager(
+        socketRef.current!,
+        roomCode,
+        myIdRef.current,
+        isHost, // host is the initiator (creates offer)
+        {
+          onStateChange: (state) => setVoiceState(state),
+          onMuteChange: (muted) => setIsMicMuted(muted),
+          onRemoteAudioStart: () => {
+            addEvent("🎙️ Voice chat connected!");
+          },
+          onError: (msg) => {
+            setVoiceError(msg);
+            // Auto-clear voice error after 5s
+            setTimeout(() => setVoiceError(null), 5000);
+          },
+        }
+      );
+
+      voiceChatRef.current = manager;
+      manager.initialize();
+    }
+
+    return () => {
+      // Don't destroy on re-render — only on full cleanup
+    };
+  }, [players, status, roomCode, isHost, addEvent]);
+
+  const toggleMic = useCallback(() => {
+    if (voiceChatRef.current) {
+      voiceChatRef.current.toggleMute();
+    }
+  }, []);
+
   const leaveRoom = useCallback(() => {
     audio.click();
+
+    // Destroy voice chat
+    if (voiceChatRef.current) {
+      voiceChatRef.current.destroy();
+      voiceChatRef.current = null;
+      setVoiceState("idle");
+      setIsMicMuted(true);
+      setVoiceError(null);
+    }
+
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("arena_mp_session");
     }
@@ -1443,6 +1504,63 @@ export default function MultiplayerPage() {
                 )}
               </div>
 
+              {/* Voice Chat Status in Lobby */}
+              {voiceState !== "idle" && (
+                <motion.div
+                  className="mt-4 p-3 rounded-xl border border-arena-line bg-white/[.02]"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {voiceState === "connecting" && (
+                        <>
+                          <Loader2 size={14} className="animate-spin text-arena-accent" />
+                          <span className="text-xs text-arena-muted">Connecting voice chat...</span>
+                        </>
+                      )}
+                      {voiceState === "connected" && (
+                        <>
+                          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                          <span className="text-xs text-green-400 font-semibold">Voice connected</span>
+                        </>
+                      )}
+                      {voiceState === "no-mic" && (
+                        <>
+                          <MicOff size={14} className="text-arena-muted" />
+                          <span className="text-xs text-arena-muted">No mic — playing without voice</span>
+                        </>
+                      )}
+                      {voiceState === "failed" && (
+                        <>
+                          <MicOff size={14} className="text-arena-bad" />
+                          <span className="text-xs text-arena-bad">Voice failed — game continues</span>
+                        </>
+                      )}
+                    </div>
+
+                    {(voiceState === "connected" || voiceState === "connecting") && (
+                      <button
+                        type="button"
+                        onClick={toggleMic}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                          isMicMuted
+                            ? "bg-white/[.04] border-arena-line text-arena-muted hover:text-arena-text"
+                            : "bg-green-500/15 border-green-500/50 text-green-400"
+                        }`}
+                      >
+                        {isMicMuted ? <MicOff size={13} /> : <Mic size={13} />}
+                        {isMicMuted ? "Tap to Unmute" : "Mic Live"}
+                      </button>
+                    )}
+                  </div>
+
+                  {voiceError && (
+                    <p className="text-[10px] text-arena-warn mt-2">{voiceError}</p>
+                  )}
+                </motion.div>
+              )}
+
               <div className="mt-6 space-y-2">
                 {playerCount >= 2 ? (
                   isHost ? (
@@ -1514,6 +1632,29 @@ export default function MultiplayerPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Voice Chat Mic Toggle */}
+            {voiceState !== "idle" && voiceState !== "no-mic" && (
+              <button
+                type="button"
+                onClick={toggleMic}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                  isMicMuted
+                    ? "bg-white/[.04] border-arena-line text-arena-muted hover:text-arena-text hover:border-white/20"
+                    : "bg-green-500/15 border-green-500/50 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.2)]"
+                }`}
+                title={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+              >
+                {isMicMuted ? <MicOff size={14} /> : <Mic size={14} />}
+                <span>{isMicMuted ? "Muted" : "Live"}</span>
+              </button>
+            )}
+            {voiceState === "connecting" && (
+              <div className="flex items-center gap-1 px-2 py-1.5 rounded-xl border border-arena-line bg-white/[.02] text-arena-muted text-xs">
+                <Loader2 size={12} className="animate-spin" />
+                <span>Voice...</span>
+              </div>
+            )}
+
             {!buzzWinner && !isRevealed && (
               <div
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all ${

@@ -8,7 +8,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { Question, Sport, Difficulty } from "@/data/questions";
 import { scoreAnswer } from "@/lib/scoring";
 
-export type GameMode = "classic" | "sprint" | "challenge" | "buzzer" | "idol";
+export type GameMode = "challenge" | "buzzer" | "idol";
 
 export interface AnswerRecord {
   questionId: string;
@@ -70,7 +70,7 @@ export const useQuizStore = create<GameState>()(
       // Initial state
   sessionId: null,
   questions: [],
-  mode: "classic",
+  mode: "challenge",
   sport: "All Sports",
   difficulty: "Mixed",
   roundCount: 0,
@@ -103,7 +103,7 @@ export const useQuizStore = create<GameState>()(
       roundCount: questions.length,
       answerHistory: [],
       totalTimeTaken: 0,
-      sprintActive: options.mode === "sprint",
+      sprintActive: false,
       sprintTimeLeft: 60,
       questionsAttempted: 0,
       ...options,

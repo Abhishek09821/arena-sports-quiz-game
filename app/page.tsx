@@ -9,8 +9,6 @@ import {
   Zap,
   Swords,
   Trophy,
-  Timer,
-  Gamepad2,
   Users,
   Calendar,
   HelpCircle,
@@ -18,6 +16,7 @@ import {
   ArrowUpRight,
   KeyRound,
   Star,
+  Mic,
 } from "lucide-react";
 import { SPORT_LIST, SPORT_META } from "@/data/questions";
 import { audio } from "@/lib/audio";
@@ -25,23 +24,9 @@ import { useAuth } from "@/components/AuthContext";
 
 const modes = [
   {
-    icon: <Gamepad2 size={22} />,
-    title: "Classic",
-    desc: "5–20 questions. Your pace.",
-    href: "/play",
-    accent: "#00d4ff",
-  },
-  {
-    icon: <Timer size={22} />,
-    title: "60s Sprint",
-    desc: "One minute. Maximum damage.",
-    href: "/sprint",
-    accent: "#f59e0b",
-  },
-  {
     icon: <Swords size={22} />,
     title: "1v1 Buzzer",
-    desc: "Real-time head-to-head.",
+    desc: "Real-time head-to-head with voice chat.",
     href: "/multiplayer",
     accent: "#ff4d6a",
   },
@@ -62,10 +47,10 @@ const modes = [
 ];
 
 const stats = [
-  { icon: <Gamepad2 size={16} />, value: "8", label: "Sports", color: "#00d4ff" },
-  { icon: <Calendar size={16} />, value: "1990–2026", label: "Coverage", color: "#a855f7" },
+  { icon: <Swords size={16} />, value: "6", label: "Sports", color: "#00d4ff" },
+  { icon: <Calendar size={16} />, value: "1975–2026", label: "Coverage", color: "#a855f7" },
   { icon: <HelpCircle size={16} />, value: "AI Generated", label: "Questions", color: "#22d37e" },
-  { icon: <Users size={16} />, value: "5", label: "Game Modes", color: "#f59e0b" },
+  { icon: <Users size={16} />, value: "3", label: "Game Modes", color: "#f59e0b" },
 ];
 
 function AnimatedSection({ children, className, delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
@@ -141,43 +126,14 @@ export default function Home() {
 
           {/* CTA Row */}
           <motion.div
-            className="flex flex-wrap gap-3 mt-10"
+            className="flex flex-wrap items-center gap-3.5 pt-2"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.5 }}
           >
             <Link
-              href="/play"
-              className="arena-btn arena-btn-primary text-base px-7 py-4"
-              onClick={(e) => {
-                audio.unlock();
-                if (!user) {
-                  e.preventDefault();
-                  requireAuth("/play");
-                }
-              }}
-            >
-              <Zap size={18} />
-              Play Now
-              <ArrowRight size={18} />
-            </Link>
-            <Link
-              href="/sprint"
-              className="arena-btn arena-btn-ghost"
-              onClick={(e) => {
-                audio.unlock();
-                if (!user) {
-                  e.preventDefault();
-                  requireAuth("/sprint");
-                }
-              }}
-            >
-              <Timer size={17} />
-              60s Sprint
-            </Link>
-            <Link
               href="/multiplayer"
-              className="arena-btn arena-btn-ghost"
+              className="arena-btn arena-btn-primary text-base px-7 py-4"
               onClick={(e) => {
                 audio.unlock();
                 if (!user) {
@@ -186,8 +142,37 @@ export default function Home() {
                 }
               }}
             >
-              <Swords size={17} />
+              <Swords size={18} />
               1v1 Buzzer
+              <ArrowRight size={18} />
+            </Link>
+            <Link
+              href="/challenge"
+              className="arena-btn arena-btn-ghost"
+              onClick={(e) => {
+                audio.unlock();
+                if (!user) {
+                  e.preventDefault();
+                  requireAuth("/challenge");
+                }
+              }}
+            >
+              <Trophy size={17} />
+              Challenge Mode
+            </Link>
+            <Link
+              href="/idol"
+              className="arena-btn arena-btn-ghost"
+              onClick={(e) => {
+                audio.unlock();
+                if (!user) {
+                  e.preventDefault();
+                  requireAuth("/idol");
+                }
+              }}
+            >
+              <Star size={17} />
+              Know Your Idol
             </Link>
           </motion.div>
         </div>
@@ -273,14 +258,14 @@ export default function Home() {
                 transition={{ delay: 0.06 * i + 0.15, duration: 0.4, ease: [0.2, 0.9, 0.3, 1] }}
               >
                 <Link
-                  href={`/play?sport=${encodeURIComponent(sport)}`}
+                  href={`/idol?sport=${encodeURIComponent(sport)}`}
                   className="arena-card arena-card-shine arena-sport-card block group"
                   data-sport={sport}
                   onClick={(e) => {
                     audio.select();
                     if (!user) {
                       e.preventDefault();
-                      requireAuth(`/play?sport=${encodeURIComponent(sport)}`);
+                      requireAuth(`/idol?sport=${encodeURIComponent(sport)}`);
                     }
                   }}
                   style={{ "--sport-color": meta.color } as React.CSSProperties}
