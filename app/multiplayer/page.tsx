@@ -1128,7 +1128,7 @@ export default function MultiplayerPage() {
   }, []);
 
   const initVoiceChat = useCallback(
-    (startUnmuted = false) => {
+    () => {
       if (voiceChatRef.current || !roomCode) return;
       const signaler = getVoiceSignaler();
       if (!signaler) return;
@@ -1146,17 +1146,13 @@ export default function MultiplayerPage() {
           },
           onError: (msg) => {
             setVoiceError(msg);
-            setTimeout(() => setVoiceError(null), 5000);
+            setTimeout(() => setVoiceError(null), 8000);
           },
         }
       );
 
       voiceChatRef.current = manager;
-      manager.initialize().then(() => {
-        if (startUnmuted) {
-          manager.toggleMute().catch(console.warn);
-        }
-      });
+      manager.initialize().catch(console.warn);
     },
     [roomCode, isHost, getVoiceSignaler, addEvent]
   );
@@ -1171,13 +1167,57 @@ export default function MultiplayerPage() {
 
   const toggleMic = useCallback(async () => {
     audio.click();
-    if (!voiceChatRef.current) {
-      initVoiceChat(true);
-      return;
+
+    // Check secure context for mobile feedback
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      const isLocal =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]";
+      if (!isLocal) {
+        setVoiceError(
+          "⚠️ Mobile browser blocks mic on plain HTTP. Please test via HTTPS (e.g. your Vercel link) to enable voice!"
+        );
+        setTimeout(() => setVoiceError(null), 8000);
+        return;
+      }
     }
-    const muted = await voiceChatRef.current.toggleMute();
-    setIsMicMuted(muted);
-  }, [initVoiceChat]);
+
+    let manager = voiceChatRef.current;
+    if (!manager) {
+      if (!roomCode) return;
+      const signaler = getVoiceSignaler();
+      if (!signaler) return;
+
+      manager = new VoiceChatManager(
+        signaler,
+        roomCode,
+        myIdRef.current,
+        isHost,
+        {
+          onStateChange: (state) => setVoiceState(state),
+          onMuteChange: (muted) => setIsMicMuted(muted),
+          onRemoteAudioStart: () => {
+            addEvent("🎙️ Voice chat connected!");
+          },
+          onError: (msg) => {
+            setVoiceError(msg);
+            setTimeout(() => setVoiceError(null), 8000);
+          },
+        }
+      );
+      voiceChatRef.current = manager;
+      manager.initialize().catch(console.warn);
+    }
+
+    // Call toggleMute directly in the synchronous user gesture stack
+    try {
+      const muted = await manager.toggleMute();
+      setIsMicMuted(muted);
+    } catch (err: any) {
+      console.warn("[Multiplayer] toggleMic error:", err);
+    }
+  }, [audio, roomCode, isHost, getVoiceSignaler, addEvent]);
 
   const leaveRoom = useCallback(
     (forceDisband?: boolean | React.MouseEvent | React.SyntheticEvent) => {
@@ -1825,7 +1865,19 @@ export default function MultiplayerPage() {
                 </div>
 
                 {voiceError && (
-                  <p className="text-[10px] text-arena-warn mt-2">{voiceError}</p>
+                  <div className="mt-3 p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs flex items-start justify-between gap-2 shadow-[0_4px_16px_rgba(245,158,11,0.2)] animate-in fade-in">
+                    <div className="flex items-start gap-2">
+                      <MicOff size={15} className="text-amber-400 shrink-0 mt-0.5" />
+                      <span className="leading-relaxed">{voiceError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVoiceError(null)}
+                      className="text-amber-400/80 hover:text-amber-200 text-sm font-bold shrink-0 px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1980,6 +2032,23 @@ export default function MultiplayerPage() {
             </button>
           </div>
         </div>
+
+        {/* Voice Chat In-Game Notice */}
+        {voiceError && (
+          <div className="w-full max-w-xl mx-auto mb-3 px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between gap-3 shadow-[0_4px_20px_rgba(245,158,11,0.2)] animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <MicOff size={15} className="text-amber-400 shrink-0" />
+              <span>{voiceError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setVoiceError(null)}
+              className="text-amber-400/80 hover:text-amber-200 text-sm font-bold shrink-0 px-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Question Card */}
         <AnimatePresence mode="wait">

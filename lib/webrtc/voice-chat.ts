@@ -72,6 +72,85 @@ function getIceServers(): RTCIceServer[] {
   return servers;
 }
 
+/**
+ * Universal Mobile & Desktop microphone acquisition.
+ * Handles iOS Safari WebKit quirks, Android Chrome, and insecure HTTP origins.
+ */
+export async function requestUserAudioStream(): Promise<MediaStream> {
+  if (typeof window === "undefined") {
+    throw new Error("Window environment is required for microphone access");
+  }
+
+  // 1. Detect Insecure Context (e.g. mobile testing on local LAN IP http://192.168.x.x:3000)
+  const isLocalhost =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "[::1]";
+
+  if (!window.isSecureContext && !isLocalhost) {
+    throw new Error(
+      "INSECURE_CONTEXT: Mobile browsers (Safari/Chrome) strictly block microphone access over plain HTTP. To speak on mobile, please open via HTTPS (e.g. your Vercel deployment https://... or ngrok tunnel) or enable Chrome insecure flags."
+    );
+  }
+
+  // 2. Modern navigator.mediaDevices.getUserMedia
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
+    // Attempt 1: Standard mobile-safe audio constraints.
+    // NOTE: NEVER specify `sampleRate` or `channelCount` here because iOS Safari WebKit
+    // throws OverconstrainedError when hardware sample rates are fixed!
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+    } catch (err: any) {
+      console.warn("[VoiceChat] High-fidelity constraints failed, trying universal audio: true", err);
+      // If user explicitly denied permission, re-throw immediately so we don't spam attempts
+      if (
+        err?.name === "NotAllowedError" ||
+        err?.name === "PermissionDeniedError" ||
+        err?.name === "SecurityError"
+      ) {
+        throw err;
+      }
+    }
+
+    // Attempt 2: Minimal fallback constraint (widest mobile device compatibility)
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+    } catch (err: any) {
+      console.warn("[VoiceChat] Basic audio constraint failed:", err);
+      throw err;
+    }
+  }
+
+  // 3. Legacy WebKit / Moz getUserMedia for older mobile webviews
+  const legacyGetUserMedia =
+    (navigator as any).getUserMedia ||
+    (navigator as any).webkitGetUserMedia ||
+    (navigator as any).mozGetUserMedia;
+
+  if (legacyGetUserMedia) {
+    return new Promise<MediaStream>((resolve, reject) => {
+      legacyGetUserMedia.call(
+        navigator,
+        { audio: true, video: false },
+        resolve,
+        reject
+      );
+    });
+  }
+
+  throw new Error("MEDIA_UNSUPPORTED: Microphone API is not supported or accessible on this browser.");
+}
+
 export class VoiceChatManager {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
@@ -87,6 +166,7 @@ export class VoiceChatManager {
   private ignoreOffer = false;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
+  private candidateQueue: RTCIceCandidateInit[] = [];
   private destroyed = false;
 
   constructor(
@@ -119,23 +199,17 @@ export class VoiceChatManager {
     try {
       if (
         typeof navigator !== "undefined" &&
-        navigator.mediaDevices?.getUserMedia &&
-        navigator.permissions?.query
+        navigator.mediaDevices &&
+        typeof navigator.mediaDevices.getUserMedia === "function" &&
+        navigator.permissions &&
+        typeof navigator.permissions.query === "function"
       ) {
         const perm = await navigator.permissions
           .query({ name: "microphone" as PermissionName })
           .catch(() => null);
 
         if (perm && perm.state === "granted") {
-          this.localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              sampleRate: 48000,
-            },
-            video: false,
-          });
+          this.localStream = await requestUserAudioStream();
 
           this.localStream.getAudioTracks().forEach((track) => {
             track.enabled = !this.isMuted;
@@ -198,33 +272,58 @@ export class VoiceChatManager {
     // Handle incoming remote audio stream
     this.pc.ontrack = (event) => {
       console.log("[VoiceChat] Remote track received:", event.track.id, "kind:", event.track.kind);
-      if (!this.remoteAudio) {
-        this.remoteAudio = new Audio();
-        this.remoteAudio.autoplay = true;
-        (this.remoteAudio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+      
+      let audioEl = this.remoteAudio;
+      if (!audioEl) {
+        if (typeof document !== "undefined") {
+          let existing = document.getElementById("arena-remote-voice-audio") as HTMLAudioElement | null;
+          if (!existing) {
+            existing = document.createElement("audio");
+            existing.id = "arena-remote-voice-audio";
+            existing.autoplay = true;
+            existing.setAttribute("playsinline", "true");
+            existing.setAttribute("webkit-playsinline", "true");
+            existing.style.display = "none";
+            document.body.appendChild(existing);
+          }
+          audioEl = existing;
+        } else {
+          audioEl = new Audio();
+        }
+        this.remoteAudio = audioEl;
       }
 
-      this.remoteAudio.volume = 1.0;
-      this.remoteAudio.muted = false;
+      audioEl.volume = 1.0;
+      audioEl.muted = false;
 
-      if (event.streams[0]) {
-        this.remoteAudio.srcObject = event.streams[0];
+      if (event.streams && event.streams[0]) {
+        audioEl.srcObject = event.streams[0];
       } else {
-        // Fallback: create new stream from track
         const stream = new MediaStream([event.track]);
-        this.remoteAudio.srcObject = stream;
+        audioEl.srcObject = stream;
       }
 
-      const playPromise = this.remoteAudio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((e) => {
-          console.warn("[VoiceChat] Remote audio play delayed until interaction:", e);
-          const resumeAudio = () => {
-            this.remoteAudio?.play().catch(console.warn);
-          };
-          window.addEventListener("click", resumeAudio, { once: true });
-          window.addEventListener("keydown", resumeAudio, { once: true });
-        });
+      const tryPlay = () => {
+        if (this.remoteAudio) {
+          this.remoteAudio.play().catch((e) => {
+            console.warn("[VoiceChat] Remote audio play waiting for user interaction:", e);
+          });
+        }
+      };
+
+      tryPlay();
+
+      // Mobile touch interaction unlocks iOS Safari audio playback
+      if (typeof window !== "undefined") {
+        const unlockAudio = () => {
+          tryPlay();
+          window.removeEventListener("touchstart", unlockAudio);
+          window.removeEventListener("touchend", unlockAudio);
+          window.removeEventListener("click", unlockAudio);
+        };
+        window.addEventListener("touchstart", unlockAudio, { passive: true });
+        window.addEventListener("touchend", unlockAudio, { passive: true });
+        window.addEventListener("click", unlockAudio, { passive: true });
       }
 
       this.callbacks.onRemoteAudioStart();
@@ -312,6 +411,22 @@ export class VoiceChatManager {
     }
   }
 
+  /** Drain any ICE candidates received before remote description was set */
+  private async flushCandidateQueue(): Promise<void> {
+    if (!this.pc || !this.pc.remoteDescription) return;
+
+    while (this.candidateQueue.length > 0) {
+      const cand = this.candidateQueue.shift();
+      if (cand) {
+        try {
+          await this.pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (err) {
+          console.warn("[VoiceChat] Error draining queued candidate:", err);
+        }
+      }
+    }
+  }
+
   /** Handle incoming SDP offer from remote peer */
   private async handleOffer(sdp: RTCSessionDescriptionInit): Promise<void> {
     if (!this.pc || this.destroyed) return;
@@ -327,6 +442,7 @@ export class VoiceChatManager {
 
     try {
       await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await this.flushCandidateQueue();
 
       // CRITICAL FOR 2-WAY AUDIO:
       // Ensure local audio transceiver is explicitly configured as 'sendrecv'
@@ -358,6 +474,7 @@ export class VoiceChatManager {
     try {
       if (this.pc.signalingState === "have-local-offer") {
         await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await this.flushCandidateQueue();
       }
     } catch (err) {
       console.error("[VoiceChat] Handle answer error:", err);
@@ -368,8 +485,14 @@ export class VoiceChatManager {
   private async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     if (!this.pc || this.destroyed) return;
 
+    // If remote description isn't set yet, queue the candidate to prevent drop
+    if (!this.pc.remoteDescription || !this.pc.remoteDescription.type) {
+      this.candidateQueue.push(candidate);
+      return;
+    }
+
     try {
-      if (candidate && this.pc.remoteDescription) {
+      if (candidate) {
         await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
       }
     } catch (err) {
@@ -443,54 +566,56 @@ export class VoiceChatManager {
     if (this.isMuted) {
       if (!this.localStream) {
         try {
-          if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                sampleRate: 48000,
-              },
-              video: false,
-            });
+          this.localStream = await requestUserAudioStream();
 
-            if (this.pc && this.localStream) {
-              const audioTrack = this.localStream.getAudioTracks()[0];
-              if (audioTrack) {
-                const sender = this.pc.getSenders().find(
-                  (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
-                );
-                if (sender) {
-                  await sender.replaceTrack(audioTrack);
-                } else {
-                  this.pc.addTrack(audioTrack, this.localStream);
-                }
+          if (this.pc && this.localStream) {
+            const audioTrack = this.localStream.getAudioTracks()[0];
+            if (audioTrack) {
+              const sender = this.pc.getSenders().find(
+                (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+              );
+              if (sender) {
+                await sender.replaceTrack(audioTrack);
+              } else {
+                this.pc.addTrack(audioTrack, this.localStream);
+              }
 
-                // Ensure transceiver direction is explicitly sendrecv
-                const transceiver = this.pc.getTransceivers().find(
-                  (t) => t.sender === sender || t.receiver?.track?.kind === "audio"
-                );
-                if (transceiver && transceiver.direction !== "sendrecv") {
-                  transceiver.direction = "sendrecv";
-                }
+              // Ensure transceiver direction is explicitly sendrecv
+              const transceiver = this.pc.getTransceivers().find(
+                (t) => t.sender === sender || t.receiver?.track?.kind === "audio"
+              );
+              if (transceiver && transceiver.direction !== "sendrecv") {
+                transceiver.direction = "sendrecv";
+              }
 
-                // Send renegotiation offer so other player receives this track
-                if (this.pc.signalingState === "stable") {
-                  await this.createOffer();
-                }
+              // Send renegotiation offer so other player receives this track
+              if (this.pc.signalingState === "stable") {
+                await this.createOffer();
               }
             }
           }
-        } catch (err) {
+        } catch (err: any) {
           const error = err as Error;
           console.warn("[VoiceChat] Mic acquisition on unmute failed:", error);
           this.isMuted = true;
-          this.callbacks.onError(
-            error.name === "NotAllowedError" || error.name === "PermissionDeniedError"
-              ? "Microphone access blocked. Please allow mic in browser settings to speak."
-              : "Unable to access microphone. Please check your audio settings."
-          );
           this.callbacks.onMuteChange(true);
+
+          if (error.message?.includes("INSECURE_CONTEXT")) {
+            this.callbacks.onError(
+              "Mobile browsers block mic on plain HTTP! Please open via HTTPS (e.g. your Vercel link) or enable Chrome insecure flags."
+            );
+          } else if (
+            error.name === "NotAllowedError" ||
+            error.name === "PermissionDeniedError"
+          ) {
+            this.callbacks.onError(
+              "Microphone permission denied. Tap browser URL bar/settings icon to Allow microphone."
+            );
+          } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+            this.callbacks.onError("No microphone hardware found on this device.");
+          } else {
+            this.callbacks.onError(`Mic error: ${error.message || "Failed to open mic"}`);
+          }
           return true;
         }
       }
@@ -562,6 +687,7 @@ export class VoiceChatManager {
   destroy(): void {
     this.destroyed = true;
     this.unbindSocketListeners();
+    this.candidateQueue = [];
 
     // Stop all local tracks
     if (this.localStream) {
@@ -575,9 +701,12 @@ export class VoiceChatManager {
       this.pc = null;
     }
 
-    // Clean up remote audio
+    // Clean up remote audio element
     if (this.remoteAudio) {
       this.remoteAudio.srcObject = null;
+      if (this.remoteAudio.parentNode) {
+        this.remoteAudio.parentNode.removeChild(this.remoteAudio);
+      }
       this.remoteAudio = null;
     }
 
