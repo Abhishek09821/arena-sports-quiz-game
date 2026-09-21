@@ -2,8 +2,8 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-const DEFAULT_ADMIN_ID = "arena-admin";
-const DEFAULT_ADMIN_KEY = "arena-super-key-2026";
+const DEFAULT_ADMIN_ID = "admin18";
+const DEFAULT_ADMIN_KEY = "viratkohli18";
 
 /**
  * Dynamically parse .env.local or .env from disk so credential changes
