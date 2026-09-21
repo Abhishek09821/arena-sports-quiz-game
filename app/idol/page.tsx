@@ -8,8 +8,6 @@ import {
   SPORT_META,
   DIFFICULTY_LIST,
   IDOL_BY_SPORT,
-  DECADE_OPTIONS,
-  type DecadeOption,
   type Difficulty,
   type Sport,
 } from "@/data/questions";
@@ -54,7 +52,6 @@ function IdolContent() {
   const [sport, setSport] = useState<Sport>(initialSport);
   const [selectedIdol, setSelectedIdol] = useState<string>("");
   const [difficulty, setDifficulty] = useState<Difficulty | "Mixed">("Mixed");
-  const [selectedDecade, setSelectedDecade] = useState<DecadeOption>("all");
   const [count, setCount] = useState(10);
   const [started, setStarted] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -125,7 +122,6 @@ function IdolContent() {
           count,
           mode: "idol",
           idol: selectedIdol,
-          decade: selectedDecade !== "all" ? selectedDecade : undefined,
           excludeStems,
           excludeAnswers,
         }),
@@ -328,45 +324,14 @@ function IdolContent() {
           </div>
         </motion.div>
 
-        {/* Decade / Era Filter */}
+        {/* Question Count */}
         <motion.div
           className="arena-card"
           initial={{ opacity: 0, y: 20 }}
           animate={configInView ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: 0.12, duration: 0.4 }}
         >
-          <div className="arena-eyebrow">4 · Era</div>
-          <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
-            Which decade?
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {DECADE_OPTIONS.map((d) => {
-              const active = selectedDecade === d.value;
-              return (
-                <button
-                  key={d.value}
-                  className="arena-card arena-tile px-3 py-2 text-center relative"
-                  data-active={active ? "true" : undefined}
-                  onClick={() => {
-                    setSelectedDecade(d.value);
-                    audio.select();
-                  }}
-                >
-                  <div className="font-semibold text-xs">{d.label}</div>
-                </button>
-              );
-            })}
-          </div>
-        </motion.div>
-
-        {/* Question Count */}
-        <motion.div
-          className="arena-card"
-          initial={{ opacity: 0, y: 20 }}
-          animate={configInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ delay: 0.15, duration: 0.4 }}
-        >
-          <div className="arena-eyebrow">5 · Length</div>
+          <div className="arena-eyebrow">4 · Length</div>
           <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
             How many questions?
           </h3>

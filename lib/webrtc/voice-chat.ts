@@ -17,6 +17,12 @@ import type { Socket } from "socket.io-client";
 
 export type VoiceState = "idle" | "connecting" | "connected" | "failed" | "no-mic";
 
+export interface VoiceSignaler {
+  emit: (event: string, data: any) => void;
+  on: (event: string, handler: (data: any) => void) => void;
+  off?: (event: string, handler?: (data: any) => void) => void;
+}
+
 export interface VoiceChatCallbacks {
   onStateChange: (state: VoiceState) => void;
   onMuteChange: (muted: boolean) => void;
@@ -70,7 +76,7 @@ export class VoiceChatManager {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteAudio: HTMLAudioElement | null = null;
-  private socket: Socket;
+  private signaler: VoiceSignaler;
   private roomCode: string;
   private playerToken: string;
   private isInitiator: boolean;
@@ -84,13 +90,13 @@ export class VoiceChatManager {
   private destroyed = false;
 
   constructor(
-    socket: Socket,
+    signaler: VoiceSignaler,
     roomCode: string,
     playerToken: string,
     isInitiator: boolean,
     callbacks: VoiceChatCallbacks
   ) {
-    this.socket = socket;
+    this.signaler = signaler;
     this.roomCode = roomCode;
     this.playerToken = playerToken;
     this.isInitiator = isInitiator;
@@ -188,10 +194,10 @@ export class VoiceChatManager {
       this.callbacks.onRemoteAudioStart();
     };
 
-    // ICE candidate trickle — send to remote peer via Socket.IO
+    // ICE candidate trickle — send to remote peer via signaler
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
-        this.socket.emit("webrtc_ice_candidate", {
+        this.signaler.emit("webrtc_ice_candidate", {
           roomCode: this.roomCode,
           playerToken: this.playerToken,
           candidate: event.candidate.toJSON(),
@@ -260,7 +266,7 @@ export class VoiceChatManager {
       });
       await this.pc.setLocalDescription(offer);
 
-      this.socket.emit("webrtc_offer", {
+      this.signaler.emit("webrtc_offer", {
         roomCode: this.roomCode,
         playerToken: this.playerToken,
         sdp: this.pc.localDescription?.toJSON(),
@@ -290,7 +296,7 @@ export class VoiceChatManager {
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
 
-      this.socket.emit("webrtc_answer", {
+      this.signaler.emit("webrtc_answer", {
         roomCode: this.roomCode,
         playerToken: this.playerToken,
         sdp: this.pc.localDescription?.toJSON(),
@@ -354,32 +360,34 @@ export class VoiceChatManager {
     }
   }
 
-  /** Bind Socket.IO listeners for WebRTC signaling */
+  /** Bind listeners for WebRTC signaling */
   private bindSocketListeners(): void {
-    this.socket.on("webrtc_offer", (data: { sdp: RTCSessionDescriptionInit; from: string }) => {
+    this.signaler.on("webrtc_offer", (data: { sdp: RTCSessionDescriptionInit; from: string }) => {
       if (data.from !== this.playerToken) {
         this.handleOffer(data.sdp);
       }
     });
 
-    this.socket.on("webrtc_answer", (data: { sdp: RTCSessionDescriptionInit; from: string }) => {
+    this.signaler.on("webrtc_answer", (data: { sdp: RTCSessionDescriptionInit; from: string }) => {
       if (data.from !== this.playerToken) {
         this.handleAnswer(data.sdp);
       }
     });
 
-    this.socket.on("webrtc_ice_candidate", (data: { candidate: RTCIceCandidateInit; from: string }) => {
+    this.signaler.on("webrtc_ice_candidate", (data: { candidate: RTCIceCandidateInit; from: string }) => {
       if (data.from !== this.playerToken) {
         this.handleIceCandidate(data.candidate);
       }
     });
   }
 
-  /** Remove Socket.IO listeners */
+  /** Remove listeners */
   private unbindSocketListeners(): void {
-    this.socket.off("webrtc_offer");
-    this.socket.off("webrtc_answer");
-    this.socket.off("webrtc_ice_candidate");
+    if (this.signaler.off) {
+      this.signaler.off("webrtc_offer");
+      this.signaler.off("webrtc_answer");
+      this.signaler.off("webrtc_ice_candidate");
+    }
   }
 
   /** Toggle mute/unmute */

@@ -1078,83 +1078,141 @@ function generateFallbackQuestions(options: GenerateOptions): RawGeneratedQuesti
 }
 
 /**
- * Execute single batch generation via configured providers with automatic mutual failover.
+ * Helper to execute generation using any key, automatically detecting whether
+ * it is a Groq key (starts with 'gsk_'), xAI key (starts with 'xai-'), or Gemini key.
+ */
+async function generateWithKey(
+  options: GenerateOptions,
+  key: string,
+  preferredModel?: string
+): Promise<RawGeneratedQuestion[]> {
+  const trimmed = key.trim();
+  if (trimmed.startsWith("gsk_")) {
+    const model = preferredModel || process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", trimmed, model);
+  } else if (trimmed.startsWith("xai-")) {
+    const model = preferredModel || process.env.XAI_MODEL || "grok-beta";
+    return await generateViaOpenAICompatible(options, "https://api.x.ai/v1", trimmed, model);
+  } else {
+    // Gemini key (standard or service account)
+    const model = preferredModel || process.env.AI_MODEL || "gemini-2.5-flash";
+    return await generateViaGemini(options, trimmed, model);
+  }
+}
+
+/**
+ * Execute single batch generation via configured providers with 3 distinct keys per mode.
  * 
- * API Routing:
- *   1v1 Multiplayer → Grok (fast, low latency) → Gemini fallback
- *   Challenge       → Gemini (accuracy)        → Grok fallback
- *   Know Your Idol  → Gemini (deep knowledge)  → Grok fallback
+ * 3 Dedicated Keys:
+ *   1. 1v1 Multiplayer  → MULTIPLAYER_AI_API_KEY (or GROQ_API_KEY / XAI_API_KEY)
+ *   2. Challenge        → CHALLENGE_AI_API_KEY   (or GEMINI_CHALLENGE_API_KEY / GEMINI_API_KEY)
+ *   3. Know Your Idol   → IDOL_AI_API_KEY        (or GEMINI_IDOL_API_KEY / GEMINI_API_KEY)
  */
 async function generateSingleBatch(options: GenerateOptions): Promise<RawGeneratedQuestion[]> {
   const mode = options.mode || "challenge";
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
-  const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
-  const groqModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
-  const geminiModel = process.env.AI_MODEL || "gemini-2.5-flash";
 
-  // ── 1v1 Multiplayer: Grok primary (speed-optimized), Gemini fallback ──
+  // Mode 1: Multiplayer dedicated key (or Groq/xAI fallback)
+  const multiplayerKey =
+    process.env.MULTIPLAYER_AI_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.XAI_API_KEY ||
+    process.env.GROK_API_KEY;
+
+  // Mode 2: Challenge dedicated key (or Gemini fallback)
+  const challengeKey =
+    process.env.CHALLENGE_AI_API_KEY ||
+    process.env.GEMINI_CHALLENGE_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY;
+
+  // Mode 3: Know Your Idol dedicated key (or Gemini Idol fallback)
+  const idolKey =
+    process.env.IDOL_AI_API_KEY ||
+    process.env.GEMINI_IDOL_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY;
+
+  // Global shared backups
+  const sharedGeminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const sharedGroqKey = process.env.GROQ_API_KEY;
+
+  // ── 1v1 Multiplayer: Fast low-latency primary (multiplayerKey), Gemini fallback ──
   if (mode === "multiplayer") {
-    if (groqKey) {
+    if (multiplayerKey) {
       try {
-        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
+        return await generateWithKey(options, multiplayerKey, process.env.MULTIPLAYER_AI_MODEL || process.env.GROQ_MODEL);
       } catch (err) {
-        console.warn(`[AI Generator - Grok for multiplayer]: ${err instanceof Error ? err.message : String(err)}. Engaging Gemini backup.`);
+        console.warn(`[AI Generator - Multiplayer Key failed]: ${err instanceof Error ? err.message : String(err)}. Engaging fallback.`);
       }
     }
 
-    if (xaiKey && xaiKey !== groqKey) {
+    if (challengeKey && challengeKey !== multiplayerKey) {
       try {
-        const model = process.env.XAI_MODEL || "grok-beta";
-        return await generateViaOpenAICompatible(options, "https://api.x.ai/v1", xaiKey, model);
+        return await generateWithKey(options, challengeKey);
       } catch (err) {
-        console.warn(`[AI Generator - xAI for multiplayer]: ${err instanceof Error ? err.message : String(err)}.`);
+        console.warn(`[AI Generator - Challenge Backup for multiplayer]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    if (geminiKey) {
+    if (sharedGeminiKey && sharedGeminiKey !== multiplayerKey) {
       try {
-        return await generateViaGemini(options, geminiKey, geminiModel);
+        return await generateWithKey(options, sharedGeminiKey);
       } catch (err) {
         console.warn(`[AI Generator - Gemini Backup for multiplayer]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
 
-  // ── Challenge Mode: Gemini primary (accuracy-optimized), Grok fallback ──
+  // ── Challenge Mode: Gemini primary (challengeKey), Groq/Multiplayer fallback ──
   if (mode === "challenge") {
-    if (geminiKey) {
+    if (challengeKey) {
       try {
-        return await generateViaGemini(options, geminiKey, geminiModel);
+        return await generateWithKey(options, challengeKey, process.env.CHALLENGE_AI_MODEL);
       } catch (err) {
-        console.warn(`[AI Generator - Gemini for challenge]: ${err instanceof Error ? err.message : String(err)}. Engaging Grok backup.`);
+        console.warn(`[AI Generator - Challenge Key failed]: ${err instanceof Error ? err.message : String(err)}. Engaging fallback.`);
       }
     }
 
-    if (groqKey) {
+    if (idolKey && idolKey !== challengeKey) {
       try {
-        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
+        return await generateWithKey(options, idolKey);
       } catch (err) {
-        console.warn(`[AI Generator - Grok Backup for challenge]: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[AI Generator - Idol Key backup for challenge]: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (multiplayerKey && multiplayerKey !== challengeKey) {
+      try {
+        return await generateWithKey(options, multiplayerKey);
+      } catch (err) {
+        console.warn(`[AI Generator - Multiplayer Backup for challenge]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
 
-  // ── Know Your Idol: Gemini primary (deep knowledge), Grok fallback ──
+  // ── Know Your Idol: Deep-knowledge primary (idolKey), Challenge/Groq fallback ──
   if (mode === "idol") {
-    if (geminiKey) {
+    if (idolKey) {
       try {
-        return await generateViaGemini(options, geminiKey, geminiModel);
+        return await generateWithKey(options, idolKey, process.env.IDOL_AI_MODEL);
       } catch (err) {
-        console.warn(`[AI Generator - Gemini for idol]: ${err instanceof Error ? err.message : String(err)}. Engaging Grok backup.`);
+        console.warn(`[AI Generator - Idol Key failed]: ${err instanceof Error ? err.message : String(err)}. Engaging fallback.`);
       }
     }
 
-    if (groqKey) {
+    if (challengeKey && challengeKey !== idolKey) {
       try {
-        return await generateViaOpenAICompatible(options, "https://api.groq.com/openai/v1", groqKey, groqModel);
+        return await generateWithKey(options, challengeKey);
       } catch (err) {
-        console.warn(`[AI Generator - Grok Backup for idol]: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[AI Generator - Challenge Key backup for idol]: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (multiplayerKey && multiplayerKey !== idolKey) {
+      try {
+        return await generateWithKey(options, multiplayerKey);
+      } catch (err) {
+        console.warn(`[AI Generator - Multiplayer Backup for idol]: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }

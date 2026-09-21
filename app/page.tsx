@@ -231,6 +231,70 @@ export default function Home() {
         </AnimatedSection>
       </section>
 
+      {/* ── Gradient Divider ─────────────────────────────────── */}
+      <div className="arena-container"><div className="arena-divider" /></div>
+
+      {/* ── Game Modes (Pick your format) ───────────────────── */}
+      <section className="arena-container py-10">
+        <AnimatedSection>
+          <div className="arena-eyebrow mb-2">Game Modes</div>
+          <h2 className="font-display text-3xl sm:text-4xl tracking-tight mb-6 font-bold">
+            Pick your format.
+          </h2>
+        </AnimatedSection>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {modes.map((mode, i) => (
+            <motion.div
+              key={mode.title}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.08 * i + 0.1, duration: 0.4 }}
+            >
+              <Link
+                href={mode.href}
+                className="arena-card arena-card-shine block group h-full"
+                onClick={(e) => {
+                  audio.select();
+                  if (!user) {
+                    e.preventDefault();
+                    requireAuth(mode.href);
+                  }
+                }}
+              >
+                {/* Accent line */}
+                <div
+                  className="w-full h-[2px] rounded-full mb-5 opacity-50 group-hover:opacity-100 transition-opacity"
+                  style={{ background: `linear-gradient(90deg, ${mode.accent}, transparent)` }}
+                />
+                <div
+                  className="w-11 h-11 rounded-xl grid place-items-center mb-4 transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg"
+                  style={{
+                    background: `${mode.accent}12`,
+                    color: mode.accent,
+                    boxShadow: `0 0 0 rgba(0,0,0,0)`,
+                  }}
+                >
+                  {mode.icon}
+                </div>
+                <h3 className="font-display font-bold tracking-tight text-lg mb-1">
+                  {mode.title}
+                </h3>
+                <p className="text-sm text-arena-muted leading-relaxed">{mode.desc}</p>
+                <div className="mt-4 flex items-center gap-1 text-xs text-arena-muted/50 group-hover:text-arena-accent/70 transition-colors">
+                  <span>Play</span>
+                  <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Gradient Divider ─────────────────────────────────── */}
+      <div className="arena-container"><div className="arena-divider" /></div>
+
       {/* ── Sports Grid ─────────────────────────────────────── */}
       <section className="arena-container py-10" ref={sportsRef}>
         <AnimatedSection>
@@ -333,67 +397,6 @@ export default function Home() {
             </form>
           </div>
         </AnimatedSection>
-      </section>
-
-      {/* ── Gradient Divider ─────────────────────────────────── */}
-      <div className="arena-container"><div className="arena-divider" /></div>
-
-      {/* ── Game Modes ──────────────────────────────────────── */}
-      <section className="arena-container py-10">
-        <AnimatedSection>
-          <div className="arena-eyebrow mb-2">Game Modes</div>
-          <h2 className="font-display text-3xl sm:text-4xl tracking-tight mb-6 font-bold">
-            Pick your format.
-          </h2>
-        </AnimatedSection>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {modes.map((mode, i) => (
-            <motion.div
-              key={mode.title}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.08 * i + 0.1, duration: 0.4 }}
-            >
-              <Link
-                href={mode.href}
-                className="arena-card arena-card-shine block group h-full"
-                onClick={(e) => {
-                  audio.select();
-                  if (!user) {
-                    e.preventDefault();
-                    requireAuth(mode.href);
-                  }
-                }}
-              >
-                {/* Accent line */}
-                <div
-                  className="w-full h-[2px] rounded-full mb-5 opacity-50 group-hover:opacity-100 transition-opacity"
-                  style={{ background: `linear-gradient(90deg, ${mode.accent}, transparent)` }}
-                />
-                <div
-                  className="w-11 h-11 rounded-xl grid place-items-center mb-4 transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg"
-                  style={{
-                    background: `${mode.accent}12`,
-                    color: mode.accent,
-                    boxShadow: `0 0 0 rgba(0,0,0,0)`,
-                  }}
-                >
-                  {mode.icon}
-                </div>
-                <h3 className="font-display font-bold tracking-tight text-lg mb-1">
-                  {mode.title}
-                </h3>
-                <p className="text-sm text-arena-muted leading-relaxed">{mode.desc}</p>
-                <div className="mt-4 flex items-center gap-1 text-xs text-arena-muted/50 group-hover:text-arena-accent/70 transition-colors">
-                  <span>Play</span>
-                  <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
       </section>
 
       {/* ── Footer ──────────────────────────────────────────── */}
