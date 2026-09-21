@@ -33,6 +33,9 @@
   html {
     background: var(--color-arena-bg);
     scroll-behavior: smooth;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   body {
@@ -44,6 +47,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  img, video, canvas, svg {
+    max-width: 100%;
+  }
+
+  input, textarea, select {
+    max-width: 100%;
+    min-width: 0;
   }
 
   button, input, textarea, select {
@@ -1051,7 +1065,32 @@
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 560px) {
   .arena-container {
-    width: min(100% - 28px, 1200px);
+    width: min(calc(100% - 24px), 1200px);
+    min-width: 0;
+  }
+
+  .arena-container :where(.flex, .grid) > * {
+    min-width: 0;
+  }
+
+  .arena-hero-title {
+    font-size: clamp(2.65rem, 14vw, 4rem);
+    letter-spacing: -0.055em;
+    overflow-wrap: anywhere;
+  }
+
+  .arena-btn {
+    max-width: 100%;
+    padding-inline: 16px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+
+  .arena-tile {
+    min-width: 0;
+    padding-inline: 8px;
+    overflow-wrap: anywhere;
   }
 
   .arena-timer {
@@ -1081,7 +1120,7 @@
   }
 
   .arena-card {
-    padding: 18px;
+    padding: 16px;
     border-radius: 16px;
   }
 
