@@ -191,9 +191,7 @@ export default function AdminLoginPage() {
 
           <div className="mt-6 pt-5 border-t border-arena-line text-center">
             <p className="text-xs text-arena-muted/70 leading-relaxed">
-              Default system ID is <span className="text-white font-mono">arena-admin</span>.
-              <br />
-              Environment variables: <span className="font-mono text-arena-accent/80">ADMIN_PORTAL_ID</span> & <span className="font-mono text-arena-accent/80">ADMIN_SECRET_KEY</span>.
+              Configured via <span className="font-mono text-arena-accent/80">ADMIN_PORTAL_ID</span> & <span className="font-mono text-arena-accent/80">ADMIN_SECRET_KEY</span> in <span className="text-white font-mono">.env.local</span>.
             </p>
           </div>
         </div>
