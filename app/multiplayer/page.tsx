@@ -17,6 +17,9 @@ import {
   Clock,
   Mic,
   MicOff,
+  UserX,
+  LogOut,
+  Play,
 } from "lucide-react";
 import Link from "next/link";
 import { io, Socket } from "socket.io-client";
@@ -107,6 +110,15 @@ export default function MultiplayerPage() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const voiceChatRef = useRef<VoiceChatManager | null>(null);
 
+  // Opponent disconnected modal & Solo Mode state
+  const [opponentLeftModalOpen, setOpponentLeftModalOpen] = useState(false);
+  const [opponentLeftName, setOpponentLeftName] = useState("Opponent");
+  const [isSoloMode, setIsSoloMode] = useState(false);
+  const opponentLeftModalOpenRef = useRef(false);
+  opponentLeftModalOpenRef.current = opponentLeftModalOpen;
+  const statusRef = useRef<RoomStatus>(status);
+  statusRef.current = status;
+
   // Synchronized refs
   const socketRef = useRef<Socket | null>(null);
   const supabaseChannelRef = useRef<ReturnType<typeof supabase extends null ? never : NonNullable<typeof supabase>["channel"]> | null>(null);
@@ -129,6 +141,55 @@ export default function MultiplayerPage() {
   const addEvent = useCallback((msg: string) => {
     setEvents((prev) => [msg, ...prev].slice(0, 8));
   }, []);
+
+  const handleOpponentLeft = useCallback(
+    (leftName?: string) => {
+      // Teardown voice chat immediately
+      if (voiceChatRef.current) {
+        voiceChatRef.current.destroy();
+        voiceChatRef.current = null;
+        setVoiceState("idle");
+        setIsMicMuted(true);
+      }
+
+      const displayName = leftName || "Opponent";
+      setOpponentLeftName(displayName);
+      addEvent(`⚠️ ${displayName} disconnected from the room.`);
+
+      if (statusRef.current === "finished" || statusRef.current === "idle") {
+        return;
+      }
+
+      setOpponentLeftModalOpen(true);
+    },
+    [addEvent]
+  );
+
+  const continuePlayingSolo = useCallback(() => {
+    audio.click();
+    setOpponentLeftModalOpen(false);
+    setIsSoloMode(true);
+    setIsHost(true);
+    isHostRef.current = true;
+    addEvent("🎮 Playing in Solo Mode — finish remaining questions!");
+
+    // Resume buzzer/answering round with a fresh countdown
+    if (phaseRef.current === "buzzer") {
+      roundStartTimeRef.current = Date.now();
+      roundDurationRef.current = 15000;
+      setTimeRemaining(15);
+    } else if (phaseRef.current === "answering") {
+      roundStartTimeRef.current = Date.now();
+      roundDurationRef.current = 8000;
+      setTimeRemaining(8);
+    }
+  }, [addEvent]);
+
+  const keepWaitingInLobby = useCallback(() => {
+    audio.click();
+    setOpponentLeftModalOpen(false);
+    addEvent("Room is open — share your 6-digit code with another friend!");
+  }, [addEvent]);
 
   const updateScoresFromMap = useCallback((scoresMap: Record<string, number>) => {
     const meId = myIdRef.current;
@@ -333,19 +394,23 @@ export default function MultiplayerPage() {
       });
 
       s.on("player_left", (data) => {
-        addEvent(data.message || "Opponent left the match.");
+        handleOpponentLeft(data?.playerName || data?.name || "Opponent");
       });
 
       s.on("room_closed", (data) => {
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("arena_mp_session");
+        if (statusRef.current === "playing") {
+          handleOpponentLeft("Host");
+        } else {
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem("arena_mp_session");
+          }
+          setStatus("idle");
+          setRoomCode("");
+          setCodeInput("");
+          setPlayers({});
+          setJoinError(data?.message || "The room was closed by the host.");
+          audio.wrong();
         }
-        setStatus("idle");
-        setRoomCode("");
-        setCodeInput("");
-        setPlayers({});
-        setJoinError(data.message || "The room was closed by the host.");
-        audio.wrong();
       });
 
       return () => {
@@ -355,13 +420,15 @@ export default function MultiplayerPage() {
       setSyncEngine("realtime");
       if (supabase) setConnected(true);
     }
-  }, [addEvent, updateScoresFromMap]);
+  }, [addEvent, updateScoresFromMap, handleOpponentLeft]);
 
   // ── Timestamp-based authoritative clock loop (0ms client drift) ──
   useEffect(() => {
     if (status !== "playing" || syncEngine !== "realtime") return;
 
     const interval = setInterval(() => {
+      if (opponentLeftModalOpenRef.current) return;
+
       const currentPhase = phaseRef.current;
       if (currentPhase === "revealed") return;
 
@@ -636,16 +703,20 @@ export default function MultiplayerPage() {
           audio.roundComplete();
           addEvent("Match finished!");
         })
-        .on("broadcast", { event: "room_closed" }, () => {
-          if (typeof window !== "undefined") {
-            sessionStorage.removeItem("arena_mp_session");
+        .on("broadcast", { event: "room_closed" }, ({ payload }) => {
+          if (statusRef.current === "playing") {
+            handleOpponentLeft(payload?.name || "Host");
+          } else {
+            if (typeof window !== "undefined") {
+              sessionStorage.removeItem("arena_mp_session");
+            }
+            setStatus("idle");
+            setRoomCode("");
+            setCodeInput("");
+            setPlayers({});
+            setJoinError(payload?.message || "The room was closed by the host.");
+            audio.wrong();
           }
-          setStatus("idle");
-          setRoomCode("");
-          setCodeInput("");
-          setPlayers({});
-          setJoinError("The room was closed by the host.");
-          audio.wrong();
         })
         .on("broadcast", { event: "player_left" }, ({ payload }) => {
           setPlayers((prev) => {
@@ -653,15 +724,28 @@ export default function MultiplayerPage() {
             delete updated[payload.id];
             return updated;
           });
-          addEvent(`${payload.name} left the room`);
+          handleOpponentLeft(payload?.name || "Opponent");
+        })
+        .on("presence", { event: "leave" }, ({ leftPresences }) => {
+          const left = (leftPresences as any[])?.find((p) => p.id && p.id !== myIdRef.current);
+          if (left) {
+            setPlayers((prev) => {
+              const updated = { ...prev };
+              delete updated[left.id];
+              return updated;
+            });
+            handleOpponentLeft(left.name || "Opponent");
+          }
         })
         .subscribe((subStatus) => {
           if (subStatus === "SUBSCRIBED") {
             setConnected(true);
+            const myPayload = { id: myIdRef.current, name: name || (isHostRef.current ? "Host" : "Player") };
+            channel.track(myPayload).catch(() => {});
             channel.send({
               type: "broadcast",
               event: "player_join",
-              payload: { id: myIdRef.current, name: name || (isHostRef.current ? "Host" : "Player") },
+              payload: myPayload,
             });
             setPlayers((prev) => ({
               ...prev,
@@ -670,7 +754,7 @@ export default function MultiplayerPage() {
           }
         });
     },
-    [addEvent, handleAnswerReveal, handleRoundTimeout, name]
+    [addEvent, handleAnswerReveal, handleRoundTimeout, handleOpponentLeft, name]
   );
 
   // ── Auto-restore session from storage on mount ───────────
@@ -1043,32 +1127,39 @@ export default function MultiplayerPage() {
     return null;
   }, []);
 
-  const initVoiceChat = useCallback(() => {
-    if (voiceChatRef.current || !roomCode) return;
-    const signaler = getVoiceSignaler();
-    if (!signaler) return;
+  const initVoiceChat = useCallback(
+    (startUnmuted = false) => {
+      if (voiceChatRef.current || !roomCode) return;
+      const signaler = getVoiceSignaler();
+      if (!signaler) return;
 
-    const manager = new VoiceChatManager(
-      signaler,
-      roomCode,
-      myIdRef.current,
-      isHost,
-      {
-        onStateChange: (state) => setVoiceState(state),
-        onMuteChange: (muted) => setIsMicMuted(muted),
-        onRemoteAudioStart: () => {
-          addEvent("🎙️ Voice chat connected!");
-        },
-        onError: (msg) => {
-          setVoiceError(msg);
-          setTimeout(() => setVoiceError(null), 5000);
-        },
-      }
-    );
+      const manager = new VoiceChatManager(
+        signaler,
+        roomCode,
+        myIdRef.current,
+        isHost,
+        {
+          onStateChange: (state) => setVoiceState(state),
+          onMuteChange: (muted) => setIsMicMuted(muted),
+          onRemoteAudioStart: () => {
+            addEvent("🎙️ Voice chat connected!");
+          },
+          onError: (msg) => {
+            setVoiceError(msg);
+            setTimeout(() => setVoiceError(null), 5000);
+          },
+        }
+      );
 
-    voiceChatRef.current = manager;
-    manager.initialize();
-  }, [roomCode, isHost, getVoiceSignaler, addEvent]);
+      voiceChatRef.current = manager;
+      manager.initialize().then(() => {
+        if (startUnmuted) {
+          manager.toggleMute().catch(console.warn);
+        }
+      });
+    },
+    [roomCode, isHost, getVoiceSignaler, addEvent]
+  );
 
   // Auto-initialize voice chat when both players are present
   useEffect(() => {
@@ -1078,68 +1169,185 @@ export default function MultiplayerPage() {
     }
   }, [players, status, initVoiceChat]);
 
-  const toggleMic = useCallback(() => {
+  const toggleMic = useCallback(async () => {
     audio.click();
     if (!voiceChatRef.current) {
-      // First click initializes mic immediately
-      initVoiceChat();
+      initVoiceChat(true);
       return;
     }
-    voiceChatRef.current.toggleMute();
+    const muted = await voiceChatRef.current.toggleMute();
+    setIsMicMuted(muted);
   }, [initVoiceChat]);
 
-  const leaveRoom = useCallback(() => {
-    audio.click();
+  const leaveRoom = useCallback(
+    (forceDisband?: boolean | React.MouseEvent | React.SyntheticEvent) => {
+      audio.click();
 
-    // Destroy voice chat
-    if (voiceChatRef.current) {
-      voiceChatRef.current.destroy();
-      voiceChatRef.current = null;
-      setVoiceState("idle");
-      setIsMicMuted(true);
-      setVoiceError(null);
-    }
-
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem("arena_mp_session");
-    }
-
-    if (roomCode) {
-      if (socketRef.current?.connected) {
-        socketRef.current.emit("leave_room", {
-          roomCode,
-          playerToken: myIdRef.current,
-        });
+      // Destroy voice chat
+      if (voiceChatRef.current) {
+        voiceChatRef.current.destroy();
+        voiceChatRef.current = null;
+        setVoiceState("idle");
+        setIsMicMuted(true);
+        setVoiceError(null);
       }
 
-      supabaseChannelRef.current?.send({
-        type: "broadcast",
-        event: isHost ? "room_closed" : "player_left",
-        payload: { id: myIdRef.current, name },
-      });
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("arena_mp_session");
+      }
 
-      fetch(`/api/multiplayer/player?code=${roomCode}&token=${myIdRef.current}`, {
-        method: "DELETE",
-      }).catch(() => {});
-    }
+      const shouldDisband = (typeof forceDisband === "boolean" ? forceDisband : false) || isHost;
 
-    supabaseChannelRef.current?.unsubscribe();
-    supabaseChannelRef.current = null;
-    setStatus("idle");
-    setRoomCode("");
-    setCodeInput("");
-    setPlayers({});
-    setMyScore(0);
-    setOpponentScore(0);
-    setCurrentQ(0);
-    setJoinError(null);
-    setIsHost(false);
-    setBuzzWinner(null);
-    setMyBuzzed(false);
-    setSelectedAnswer(null);
-    setRevealedAnswer(null);
-    setIsTimedOut(false);
-  }, [roomCode, isHost, name]);
+      if (roomCode) {
+        if (socketRef.current?.connected) {
+          socketRef.current.emit("leave_room", {
+            roomCode,
+            playerToken: myIdRef.current,
+            disband: shouldDisband,
+          });
+        }
+
+        supabaseChannelRef.current?.send({
+          type: "broadcast",
+          event: shouldDisband ? "room_closed" : "player_left",
+          payload: { id: myIdRef.current, name },
+        });
+
+        fetch(
+          `/api/multiplayer/player?code=${roomCode}&token=${myIdRef.current}${
+            shouldDisband ? "&disband=true" : ""
+          }`,
+          {
+            method: "DELETE",
+          }
+        ).catch(() => {});
+      }
+
+      supabaseChannelRef.current?.unsubscribe();
+      supabaseChannelRef.current = null;
+      setStatus("idle");
+      setRoomCode("");
+      setCodeInput("");
+      setPlayers({});
+      setMyScore(0);
+      setOpponentScore(0);
+      setCurrentQ(0);
+      setJoinError(null);
+      setIsHost(false);
+      setBuzzWinner(null);
+      setMyBuzzed(false);
+      setSelectedAnswer(null);
+      setRevealedAnswer(null);
+      setIsTimedOut(false);
+      setIsSoloMode(false);
+      setOpponentLeftModalOpen(false);
+    },
+    [roomCode, isHost, name]
+  );
+
+  const disbandAndLeave = useCallback(() => {
+    audio.click();
+    setOpponentLeftModalOpen(false);
+    leaveRoom(true);
+  }, [leaveRoom]);
+
+  // Clean disconnect on tab close / browser navigation
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (roomCode && myIdRef.current) {
+        const shouldDisband = isHostRef.current;
+        supabaseChannelRef.current?.send({
+          type: "broadcast",
+          event: shouldDisband ? "room_closed" : "player_left",
+          payload: { id: myIdRef.current, name },
+        });
+        navigator.sendBeacon?.(
+          `/api/multiplayer/player?code=${roomCode}&token=${myIdRef.current}${
+            shouldDisband ? "&disband=true" : ""
+          }`
+        );
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handleBeforeUnload);
+    };
+  }, [roomCode, name]);
+
+  const renderOpponentLeftModal = () => {
+    if (!opponentLeftModalOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="relative w-full max-w-md rounded-3xl border border-arena-line/80 bg-gradient-to-b from-[#13151D] to-[#0A0C11] p-6 sm:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)] text-center"
+        >
+          {/* Subtle glow highlight */}
+          <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-40 h-24 bg-red-500/10 blur-3xl pointer-events-none rounded-full" />
+
+          {/* Icon Badge */}
+          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/25 flex items-center justify-center text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+            <UserX size={28} />
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold mb-3">
+            <span>Opponent Disconnected</span>
+          </div>
+
+          <h3 className="text-xl sm:text-2xl font-display font-extrabold text-white tracking-wide mb-2">
+            {status === "playing" ? "Opponent Left Match" : "Opponent Left Room"}
+          </h3>
+
+          <p className="text-sm text-arena-muted mb-6 leading-relaxed">
+            {status === "playing" ? (
+              <>
+                <span className="text-white font-semibold">{opponentLeftName}</span> left the room. You can continue playing solo to finish the quiz, or disband the match.
+              </>
+            ) : (
+              <>
+                <span className="text-white font-semibold">{opponentLeftName}</span> left the lobby. You can keep the room open to wait for another player or disband.
+              </>
+            )}
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={disbandAndLeave}
+              className="flex-1 px-4 py-3.5 rounded-2xl font-bold bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm shadow-[0_0_15px_rgba(239,68,68,0.15)]"
+            >
+              <LogOut size={16} />
+              Disband & Exit
+            </button>
+
+            {status === "playing" ? (
+              <button
+                type="button"
+                onClick={continuePlayingSolo}
+                className="flex-1 px-4 py-3.5 rounded-2xl font-bold bg-gradient-to-r from-arena-accent to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm shadow-[0_0_20px_rgba(0,229,255,0.3)]"
+              >
+                <Play size={16} />
+                Continue Solo
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={keepWaitingInLobby}
+                className="flex-1 px-4 py-3.5 rounded-2xl font-bold bg-arena-accent/15 border border-arena-accent/40 text-arena-accent hover:bg-arena-accent/25 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm"
+              >
+                <Users size={16} />
+                Keep Room Open
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
 
   // ── Keyboard Spacebar to Buzz ────────────────────────────
   useEffect(() => {
@@ -1670,6 +1878,7 @@ export default function MultiplayerPage() {
             )}
           </motion.div>
         </div>
+        {renderOpponentLeftModal()}
       </main>
     );
   }
@@ -1686,9 +1895,16 @@ export default function MultiplayerPage() {
             <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
               You: <span className="text-arena-accent font-display">{myScore}</span>
             </div>
-            <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
-              Opp: <span className="text-arena-bad font-display">{opponentScore}</span>
-            </div>
+            {isSoloMode ? (
+              <div className="px-3 py-1.5 rounded-xl border border-arena-warn/40 bg-arena-warn/10 text-arena-warn text-xs font-semibold backdrop-blur-sm flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-arena-warn animate-pulse" />
+                Solo Play
+              </div>
+            ) : (
+              <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
+                Opp: <span className="text-arena-bad font-display">{opponentScore}</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1929,6 +2145,8 @@ export default function MultiplayerPage() {
             ))}
           </div>
         )}
+
+        {renderOpponentLeftModal()}
       </main>
     );
   }

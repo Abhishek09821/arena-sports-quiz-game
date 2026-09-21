@@ -202,13 +202,14 @@ export async function DELETE(req: Request) {
     const playerList = players || [];
     const hostToken = (room.settings as { hostToken?: string } | null)?.hostToken;
     const isCreator = hostToken ? hostToken === playerToken : playerList[0]?.player_token === playerToken;
+    const shouldDisband = searchParams.get("disband") === "true";
 
-    if (isCreator) {
-      // Creator leaves -> delete room completely (cascades and cancels match for everyone)
+    if (isCreator || shouldDisband || playerList.length <= 1) {
+      // Creator leaves, disband requested, or last remaining player leaves -> delete room completely
       await adminClient.from("game_players").delete().eq("room_id", room.id);
       await adminClient.from("game_events").delete().eq("room_id", room.id);
       await adminClient.from("game_rooms").delete().eq("id", room.id);
-      return NextResponse.json({ success: true, roomClosed: true, role: "creator" });
+      return NextResponse.json({ success: true, roomClosed: true, role: isCreator ? "creator" : "guest" });
     } else {
       // Guest leaves -> only remove this guest, room remains active for host
       await adminClient

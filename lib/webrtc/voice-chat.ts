@@ -105,50 +105,60 @@ export class VoiceChatManager {
     this.bindSocketListeners();
   }
 
-  /** Initialize mic and start WebRTC connection */
+  /** Initialize WebRTC connection and optionally request mic */
   async initialize(): Promise<void> {
     if (this.destroyed) return;
 
     this.setState("connecting");
 
+    // Always create peer connection with audio transceiver first so remote audio can still be received
+    this.createPeerConnection();
+
+    // Check if mic permission was already granted previously; if so, attach stream.
+    // If not granted, we do NOT trigger an unprompted getUserMedia to prevent browser permission policy violations.
     try {
-      // Request microphone access
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-        },
-        video: false,
-      });
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.mediaDevices?.getUserMedia &&
+        navigator.permissions?.query
+      ) {
+        const perm = await navigator.permissions
+          .query({ name: "microphone" as PermissionName })
+          .catch(() => null);
 
-      // Start muted — user toggles on manually
-      this.localStream.getAudioTracks().forEach((track) => {
-        track.enabled = false;
-      });
+        if (perm && perm.state === "granted") {
+          this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              sampleRate: 48000,
+            },
+            video: false,
+          });
 
-      this.createPeerConnection();
+          this.localStream.getAudioTracks().forEach((track) => {
+            track.enabled = !this.isMuted;
+          });
 
-      // If we're the initiator (host), create and send offer
-      if (this.isInitiator) {
-        await this.createOffer();
+          if (this.pc && this.localStream) {
+            const audioTrack = this.localStream.getAudioTracks()[0];
+            const sender = this.pc.getSenders().find(
+              (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+            );
+            if (sender && audioTrack) {
+              await sender.replaceTrack(audioTrack);
+            }
+          }
+        }
       }
-    } catch (err) {
-      const error = err as Error;
-      if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-        console.warn("[VoiceChat] Mic permission denied — playing without voice");
-        this.setState("no-mic");
-        this.callbacks.onError("Microphone access denied. You can still play without voice.");
-      } else if (error.name === "NotFoundError") {
-        console.warn("[VoiceChat] No microphone found");
-        this.setState("no-mic");
-        this.callbacks.onError("No microphone detected. You can still play without voice.");
-      } else {
-        console.error("[VoiceChat] Initialization error:", error);
-        this.setState("failed");
-        this.callbacks.onError(`Voice chat error: ${error.message}`);
-      }
+    } catch {
+      // Non-blocking, mic will be requested on user's explicit Unmute click
+    }
+
+    // If initiator (host), send SDP offer
+    if (this.isInitiator) {
+      await this.createOffer();
     }
   }
 
@@ -163,11 +173,26 @@ export class VoiceChatManager {
       iceCandidatePoolSize: 2,
     });
 
-    // Add local audio tracks to connection
+    // Ensure bidirectional audio transceiver is configured on connection setup
+    try {
+      this.pc.addTransceiver("audio", { direction: "sendrecv" });
+    } catch (e) {
+      console.warn("[VoiceChat] addTransceiver note:", e);
+    }
+
+    // Add local audio tracks to connection if already available
     if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        this.pc!.addTrack(track, this.localStream!);
-      });
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        const sender = this.pc.getSenders().find(
+          (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+        );
+        if (sender) {
+          sender.replaceTrack(audioTrack).catch(console.warn);
+        } else {
+          this.pc.addTrack(audioTrack, this.localStream);
+        }
+      }
     }
 
     // Handle incoming remote audio stream
@@ -391,13 +416,66 @@ export class VoiceChatManager {
   }
 
   /** Toggle mute/unmute */
-  toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
+  async toggleMute(): Promise<boolean> {
+    if (this.destroyed) return this.isMuted;
 
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach((track) => {
-        track.enabled = !this.isMuted;
-      });
+    // Toggling to unmuted
+    if (this.isMuted) {
+      if (!this.localStream) {
+        try {
+          if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,
+              },
+              video: false,
+            });
+
+            if (this.pc && this.localStream) {
+              const audioTrack = this.localStream.getAudioTracks()[0];
+              if (audioTrack) {
+                const sender = this.pc.getSenders().find(
+                  (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+                );
+                if (sender) {
+                  await sender.replaceTrack(audioTrack);
+                } else {
+                  this.pc.addTrack(audioTrack, this.localStream);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          const error = err as Error;
+          console.warn("[VoiceChat] Mic acquisition on unmute failed:", error);
+          this.isMuted = true;
+          this.callbacks.onError(
+            error.name === "NotAllowedError" || error.name === "PermissionDeniedError"
+              ? "Microphone access blocked. Please allow mic in browser settings to speak."
+              : "Unable to access microphone. Please check your audio settings."
+          );
+          this.callbacks.onMuteChange(true);
+          return true;
+        }
+      }
+
+      this.isMuted = false;
+      if (this.localStream) {
+        this.localStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      }
+    } else {
+      // Toggling to muted
+      this.isMuted = true;
+      if (this.localStream) {
+        this.localStream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
     }
 
     this.callbacks.onMuteChange(this.isMuted);
