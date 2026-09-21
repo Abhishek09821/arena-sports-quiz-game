@@ -9,10 +9,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthContext";
 
 const links = [
-  { href: "/play", label: "Play" },
-  { href: "/sprint", label: "Sprint" },
-  { href: "/multiplayer", label: "1v1" },
+  { href: "/multiplayer", label: "1v1 Buzzer" },
   { href: "/challenge", label: "Challenge" },
+  { href: "/idol", label: "Know Your Idol" },
 ];
 
 export default function ArenaHeader() {

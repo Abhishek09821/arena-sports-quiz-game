@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/play";
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/play";
+  const next = searchParams.get("next") ?? "/";
+  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
 
   if (code) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

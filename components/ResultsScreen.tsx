@@ -264,7 +264,7 @@ export default function ResultsScreen({ onPlayAgain }: ResultsScreenProps) {
             Play Again
           </button>
           <Link
-            href="/play"
+            href="/"
             className="arena-btn arena-btn-ghost"
             onClick={() => {
               audio.navigate();

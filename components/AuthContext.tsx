@@ -50,7 +50,7 @@ function sanitizeRedirect(url?: string | null): string | null {
   if (clean.startsWith("/") && !clean.startsWith("//") && !clean.toLowerCase().startsWith("/\\")) {
     return clean;
   }
-  return "/play";
+  return "/";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -151,9 +151,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signInWithGoogle = async (redirectPath = "/play") => {
+  const signInWithGoogle = async (redirectPath = "/") => {
     if (!supabase) return { error: "Supabase connection is not available." };
-    const safePath = (redirectPath && redirectPath.startsWith("/") && !redirectPath.startsWith("//")) ? redirectPath : "/play";
+    const safePath = (redirectPath && redirectPath.startsWith("/") && !redirectPath.startsWith("//")) ? redirectPath : "/";
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(safePath)}`;
 

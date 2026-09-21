@@ -14,6 +14,9 @@ export const metadata: Metadata = {
     description: "Test your sports knowledge. 8 sports. 1990–2026. Multiple game modes.",
     type: "website",
   },
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

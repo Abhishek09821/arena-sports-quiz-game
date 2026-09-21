@@ -24,7 +24,7 @@ export default function SignUpPage() {
     setError("");
     setGoogleLoading(true);
     audio.click();
-    const res = await signInWithGoogle("/play");
+    const res = await signInWithGoogle("/");
     if (res.error) {
       setError(res.error);
       setGoogleLoading(false);
@@ -60,7 +60,7 @@ export default function SignUpPage() {
       setLoading(false);
     } else {
       audio.correct();
-      router.push("/play");
+      router.push("/");
     }
   };
 

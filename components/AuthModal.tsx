@@ -53,7 +53,7 @@ export default function AuthModal() {
     setError(null);
     setGoogleLoading(true);
     audio.click();
-    const target = authRedirectUrl || "/play";
+    const target = authRedirectUrl || "/";
     const res = await signInWithGoogle(target);
     if (res.error) {
       setError(res.error);
