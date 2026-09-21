@@ -197,12 +197,15 @@ export class VoiceChatManager {
 
     // Handle incoming remote audio stream
     this.pc.ontrack = (event) => {
-      console.log("[VoiceChat] Remote track received");
+      console.log("[VoiceChat] Remote track received:", event.track.id, "kind:", event.track.kind);
       if (!this.remoteAudio) {
         this.remoteAudio = new Audio();
         this.remoteAudio.autoplay = true;
         (this.remoteAudio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
       }
+
+      this.remoteAudio.volume = 1.0;
+      this.remoteAudio.muted = false;
 
       if (event.streams[0]) {
         this.remoteAudio.srcObject = event.streams[0];
@@ -212,9 +215,17 @@ export class VoiceChatManager {
         this.remoteAudio.srcObject = stream;
       }
 
-      this.remoteAudio.play().catch((e) => {
-        console.warn("[VoiceChat] Auto-play blocked:", e);
-      });
+      const playPromise = this.remoteAudio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((e) => {
+          console.warn("[VoiceChat] Remote audio play delayed until interaction:", e);
+          const resumeAudio = () => {
+            this.remoteAudio?.play().catch(console.warn);
+          };
+          window.addEventListener("click", resumeAudio, { once: true });
+          window.addEventListener("keydown", resumeAudio, { once: true });
+        });
+      }
 
       this.callbacks.onRemoteAudioStart();
     };
@@ -241,7 +252,6 @@ export class VoiceChatManager {
           this.reconnectAttempts = 0;
           break;
         case "disconnected":
-          // Temporary disconnection — WebRTC may recover automatically
           console.warn("[VoiceChat] Peer disconnected, waiting for recovery...");
           break;
         case "failed":
@@ -261,8 +271,7 @@ export class VoiceChatManager {
       console.log(`[VoiceChat] ICE state: ${iceState}`);
 
       if (iceState === "failed") {
-        // Try ICE restart before giving up
-        if (this.isInitiator && this.reconnectAttempts < this.maxReconnectAttempts) {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
           console.log("[VoiceChat] Attempting ICE restart...");
           this.reconnectAttempts++;
           this.pc?.restartIce();
@@ -271,9 +280,9 @@ export class VoiceChatManager {
       }
     };
 
-    // Negotiation needed (e.g., after ICE restart)
+    // Negotiation needed: allow BOTH host and guest to renegotiate when tracks are added
     this.pc.onnegotiationneeded = async () => {
-      if (this.isInitiator) {
+      if (this.pc?.signalingState === "stable") {
         await this.createOffer();
       }
     };
@@ -318,6 +327,17 @@ export class VoiceChatManager {
 
     try {
       await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+
+      // CRITICAL FOR 2-WAY AUDIO:
+      // Ensure local audio transceiver is explicitly configured as 'sendrecv'
+      // before creating the answer, so the SDP answer advertises two-way audio capability!
+      const audioTransceiver = this.pc.getTransceivers().find(
+        (t) => t.receiver?.track?.kind === "audio" || t.sender?.track?.kind === "audio"
+      );
+      if (audioTransceiver) {
+        audioTransceiver.direction = "sendrecv";
+      }
+
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
 
@@ -445,6 +465,19 @@ export class VoiceChatManager {
                 } else {
                   this.pc.addTrack(audioTrack, this.localStream);
                 }
+
+                // Ensure transceiver direction is explicitly sendrecv
+                const transceiver = this.pc.getTransceivers().find(
+                  (t) => t.sender === sender || t.receiver?.track?.kind === "audio"
+                );
+                if (transceiver && transceiver.direction !== "sendrecv") {
+                  transceiver.direction = "sendrecv";
+                }
+
+                // Send renegotiation offer so other player receives this track
+                if (this.pc.signalingState === "stable") {
+                  await this.createOffer();
+                }
               }
             }
           }
@@ -467,6 +500,20 @@ export class VoiceChatManager {
         this.localStream.getAudioTracks().forEach((track) => {
           track.enabled = true;
         });
+
+        // Ensure track is attached to sender and transceiver is active
+        if (this.pc) {
+          const audioTrack = this.localStream.getAudioTracks()[0];
+          const sender = this.pc.getSenders().find(
+            (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+          );
+          if (sender && audioTrack) {
+            await sender.replaceTrack(audioTrack);
+          }
+          if (this.pc.signalingState === "stable") {
+            await this.createOffer();
+          }
+        }
       }
     } else {
       // Toggling to muted

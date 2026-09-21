@@ -4,18 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Shield, ArrowLeft, Mail, Lock, AlertCircle, KeyRound, CheckCircle2, Sparkles } from "lucide-react";
-import { useAuth } from "@/components/AuthContext";
+import { Shield, ArrowLeft, KeyRound, AlertCircle, CheckCircle2, Lock, Eye, EyeOff, Terminal } from "lucide-react";
 import { audio } from "@/lib/audio";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { signIn, refreshProfile } = useAuth();
 
-  const [authMethod, setAuthMethod] = useState<"passkey" | "credentials">("passkey");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [adminId, setAdminId] = useState("");
   const [adminKey, setAdminKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,298 +24,180 @@ export default function AdminLoginPage() {
     setLoading(true);
     audio.click();
 
+    if (!adminId.trim() || !adminKey.trim()) {
+      setError("Please provide both Admin Portal ID and Admin Key.");
+      setLoading(false);
+      audio.wrong();
+      return;
+    }
+
     try {
-      if (authMethod === "passkey") {
-        if (!adminKey.trim()) {
-          setError("Please enter the Admin Master Passkey.");
-          setLoading(false);
-          return;
-        }
-
-        const res = await fetch("/api/auth/admin-login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim().toLowerCase() || "admin@arena.com",
-            password: password || "AdminPass123!",
-            adminKey: adminKey.trim(),
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          setError(data.error || "Invalid Admin Master Passkey.");
-          audio.wrong();
-          setLoading(false);
-          return;
-        }
-
-        // Sign in with the credentials
-        const loginEmail = email.trim().toLowerCase() || "admin@arena.com";
-        const loginPass = password || "AdminPass123!";
-        const loginRes = await signIn(loginEmail, loginPass);
-        if (loginRes.error) {
-          // If already signed in or special case
-          console.warn("[Admin Login] Sign in note:", loginRes.error);
-        }
-
-        await refreshProfile();
-        setSuccessMsg("Administrator clearance granted! Redirecting...");
-        audio.correct();
-        setTimeout(() => {
-          router.push("/admin");
-        }, 600);
-        return;
-      }
-
-      // Credentials method
-      const loginRes = await signIn(email, password);
-      if (loginRes.error) {
-        setError(loginRes.error);
-        audio.wrong();
-        setLoading(false);
-        return;
-      }
-
-      // Verify role
       const res = await fetch("/api/auth/admin-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          adminId: adminId.trim(),
+          adminKey: adminKey.trim(),
+        }),
       });
+
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || "This account does not have administrator privileges. Use the Admin Master Passkey tab.");
+        setError(data.error || "Access Denied: Invalid Admin Credentials.");
         audio.wrong();
         setLoading(false);
         return;
       }
 
-      await refreshProfile();
-      setSuccessMsg("Authentication successful! Redirecting to Admin Dashboard...");
+      // Store verified admin session
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("arena_admin_token", data.token);
+        sessionStorage.setItem("arena_admin_id", data.adminId);
+      }
+
+      setSuccessMsg("Security clearance verified! Entering Command Center...");
       audio.correct();
+
       setTimeout(() => {
         router.push("/admin");
-      }, 600);
+      }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication error occurred.");
       audio.wrong();
-    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="arena-container min-h-[calc(100vh-80px)] flex items-center justify-center py-12">
-      <motion.div
-        className="w-full max-w-md"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
+    <div className="min-h-screen bg-arena-bg flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      {/* Background Ambience */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/3 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-arena-accent/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors mb-6"
+          className="inline-flex items-center gap-2 text-sm text-arena-muted hover:text-white transition-colors mb-6"
         >
-          <ArrowLeft size={15} /> Home
+          <ArrowLeft size={16} />
+          Back to Arena
         </Link>
 
-        <div className="arena-card relative overflow-hidden border-arena-accent/30 shadow-[0_0_50px_rgba(0,212,255,0.08)]">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Shield size={16} className="text-arena-accent" />
-              <span className="arena-eyebrow text-arena-accent">Security Clearance</span>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-arena-accent/15 text-arena-accent font-semibold">
-              Admin Portal
-            </span>
+        {/* Security Shield Header */}
+        <div className="text-center">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500/20 to-orange-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shadow-[0_0_30px_rgba(239,68,68,0.2)] mb-4">
+            <Shield size={32} />
           </div>
-
-          <h1 className="font-display text-3xl font-bold tracking-tight mb-2">
-            Admin Access
-          </h1>
-          <p className="text-sm text-arena-muted mb-5">
-            Authenticate to access live telemetry, manage models, review questions, and inspect user activity.
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono font-semibold mb-2">
+            <Terminal size={12} />
+            <span>RESTRICTED ACCESS PORTAL</span>
+          </div>
+          <h2 className="text-3xl font-display font-extrabold text-white tracking-tight">
+            Arena Command Center
+          </h2>
+          <p className="mt-2 text-sm text-arena-muted">
+            Enter authorized Admin ID and Security Key. Regular user accounts (Google/Email) are strictly prohibited.
           </p>
+        </div>
 
-          {/* Method selector */}
-          <div className="flex rounded-xl bg-black/40 border border-arena-line p-1 mb-5">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMethod("passkey");
-                setError("");
-                audio.select();
-              }}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                authMethod === "passkey"
-                  ? "bg-arena-accent text-arena-bg shadow-sm"
-                  : "text-arena-muted hover:text-arena-text"
-              }`}
-            >
-              <KeyRound size={13} />
-              Master Passkey (Instant)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMethod("credentials");
-                setError("");
-                audio.select();
-              }}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                authMethod === "credentials"
-                  ? "bg-arena-accent text-arena-bg shadow-sm"
-                  : "text-arena-muted hover:text-arena-text"
-              }`}
-            >
-              <Mail size={13} />
-              Email & Password
-            </button>
-          </div>
-
+        {/* Form Card */}
+        <div className="mt-8 bg-arena-card/90 backdrop-blur-xl border border-arena-line rounded-3xl p-6 sm:p-8 shadow-2xl relative">
           {error && (
             <motion.div
-              className="arena-notice mb-4"
-              data-variant="error"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-5 p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2.5 font-mono"
             >
-              <div className="flex items-center gap-2 text-arena-bad font-semibold text-xs">
-                <AlertCircle size={15} className="flex-shrink-0" />
-                <span>{error}</span>
-              </div>
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <span>{error}</span>
             </motion.div>
           )}
 
           {successMsg && (
             <motion.div
-              className="arena-notice mb-4"
-              data-variant="success"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-5 p-3.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-xs flex items-center gap-2.5 font-semibold"
             >
-              <div className="flex items-center gap-2 text-arena-good font-semibold text-xs">
-                <CheckCircle2 size={15} className="flex-shrink-0" />
-                <span>{successMsg}</span>
-              </div>
+              <CheckCircle2 size={16} className="shrink-0" />
+              <span>{successMsg}</span>
             </motion.div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {authMethod === "passkey" ? (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-arena-accent mb-1.5 flex items-center justify-between">
-                    <span>Admin Master Passkey</span>
-                    <span className="text-[10px] text-arena-muted font-normal">Default: arena-admin-2026</span>
-                  </label>
-                  <div className="relative">
-                    <KeyRound size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-arena-accent" />
-                    <input
-                      type="password"
-                      required
-                      value={adminKey}
-                      onChange={(e) => setAdminKey(e.target.value)}
-                      placeholder="arena-admin-2026"
-                      className="arena-input pl-10 text-sm border-arena-accent/40 focus:border-arena-accent"
-                    />
-                  </div>
+            <div>
+              <label className="block text-xs font-semibold text-arena-muted mb-1.5 uppercase tracking-wider">
+                Admin Portal ID
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-arena-muted">
+                  <Terminal size={16} />
                 </div>
+                <input
+                  type="text"
+                  required
+                  value={adminId}
+                  onChange={(e) => setAdminId(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-white/[.03] border border-arena-line rounded-xl text-white text-sm placeholder:text-arena-muted/50 focus:outline-none focus:border-red-500/60 focus:ring-1 focus:ring-red-500/60 transition-all font-mono"
+                  placeholder="e.g. arena-admin"
+                  autoComplete="username"
+                />
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-arena-muted mb-1.5">
-                    Your Email (to link admin privileges)
-                  </label>
-                  <div className="relative">
-                    <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-arena-muted" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="abhishek@gmail.com"
-                      className="arena-input pl-10 text-sm"
-                    />
-                  </div>
+            <div>
+              <label className="block text-xs font-semibold text-arena-muted mb-1.5 uppercase tracking-wider">
+                Admin Master Key
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-arena-muted">
+                  <KeyRound size={16} />
                 </div>
+                <input
+                  type={showKey ? "text" : "password"}
+                  required
+                  value={adminKey}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                  className="w-full pl-10 pr-10 py-3 bg-white/[.03] border border-arena-line rounded-xl text-white text-sm placeholder:text-arena-muted/50 focus:outline-none focus:border-red-500/60 focus:ring-1 focus:ring-red-500/60 transition-all font-mono"
+                  placeholder="••••••••••••••••"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-arena-muted hover:text-white transition-colors"
+                >
+                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-arena-muted mb-1.5">
-                    Account Password (Optional)
-                  </label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-arena-muted" />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="arena-input pl-10 text-sm"
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-arena-muted mb-1.5">
-                    Admin Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-arena-muted" />
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@arena.com"
-                      className="arena-input pl-10 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-arena-muted mb-1.5">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-arena-muted" />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="arena-input pl-10 text-sm"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            <motion.button
+            <button
               type="submit"
               disabled={loading}
-              className="arena-btn arena-btn-primary w-full justify-center mt-6 shadow-[0_0_25px_rgba(0,212,255,0.25)]"
-              whileTap={{ scale: 0.98 }}
+              className="w-full mt-2 py-3.5 px-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-orange-600 text-white hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)] transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50 cursor-pointer"
             >
-              <Shield size={16} />
-              {loading ? "Authenticating Clearance..." : "Authenticate as Admin"}
-            </motion.button>
+              {loading ? (
+                <span>Verifying Security Clearance...</span>
+              ) : (
+                <>
+                  <Lock size={16} />
+                  <span>Authenticate Clearance</span>
+                </>
+              )}
+            </button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-arena-line flex items-center justify-between text-xs text-arena-muted">
-            <Link href="/login" className="text-arena-accent hover:underline font-semibold">
-              Player Login
-            </Link>
-            <span className="text-[11px] text-arena-muted/70 flex items-center gap-1">
-              <Sparkles size={11} className="text-arena-accent" />
-              Role: System Administrator
-            </span>
+          <div className="mt-6 pt-5 border-t border-arena-line text-center">
+            <p className="text-xs text-arena-muted/70 leading-relaxed">
+              Default system ID is <span className="text-white font-mono">arena-admin</span>.
+              <br />
+              Environment variables: <span className="font-mono text-arena-accent/80">ADMIN_PORTAL_ID</span> & <span className="font-mono text-arena-accent/80">ADMIN_SECRET_KEY</span>.
+            </p>
           </div>
         </div>
-      </motion.div>
-    </main>
+      </div>
+    </div>
   );
 }
