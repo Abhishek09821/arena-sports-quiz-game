@@ -4,15 +4,15 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { Sport } from "@/data/questions";
 
 type Theme = "light" | "dark";
-const ThemeContext = createContext({ theme: "dark" as Theme, sport: "All Sports" as Sport | "All Sports", toggleTheme: () => {}, selectSport: (_sport: Sport | "All Sports") => {} });
+const ThemeContext = createContext({ theme: "light" as Theme, sport: "All Sports" as Sport | "All Sports", toggleTheme: () => {}, selectSport: (_sport: Sport | "All Sports") => {} });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   const [sport, setSport] = useState<Sport | "All Sports">("All Sports");
   useEffect(() => {
     let saved: string | null = null;
-    try { saved = localStorage.getItem("arena-theme"); } catch { /* Use system preference. */ }
-    setTheme(saved === "light" || saved === "dark" ? saved : window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    try { saved = localStorage.getItem("arena-theme"); } catch { /* Keep the light default. */ }
+    setTheme(saved === "light" || saved === "dark" ? saved : "light");
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

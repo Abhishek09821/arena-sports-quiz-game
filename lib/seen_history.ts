@@ -1,7 +1,8 @@
 /**
  * Centralized Persistent Seen Question & Answer Registry
  * Tracks questions and answers seen across all game modes (Classic, Challenge, Sprint, Multiplayer)
- * in localStorage across sessions on this browser. History is never silently evicted.
+ * in localStorage across sessions on this browser. History is best-effort and
+ * must never block quiz generation when browser storage is unavailable.
  */
 
 const SEEN_REGISTRY_KEY = "arena_seen_history_v2";
@@ -57,7 +58,7 @@ function readRegistry(): StoredRegistry {
       hashes: Array.isArray(parsed.hashes) ? parsed.hashes : [],
     };
   } catch {
-    throw new Error("Question history could not be read. Restore browser storage before starting a new round.");
+    return { stems: [], answers: [], hashes: [] };
   }
 }
 
@@ -69,7 +70,7 @@ function writeRegistry(registry: StoredRegistry): void {
   try {
     localStorage.setItem(SEEN_REGISTRY_KEY, JSON.stringify(registry));
   } catch {
-    throw new Error("Question history could not be saved. Enable browser storage before starting another round.");
+    // Storage may be disabled or full. The generated quiz remains playable.
   }
 }
 

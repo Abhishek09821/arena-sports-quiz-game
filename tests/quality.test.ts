@@ -70,6 +70,18 @@ test("history retains entries older than the former 3000-item cap", () => {
     Reflect.deleteProperty(globalThis, "window"); Reflect.deleteProperty(globalThis, "localStorage");
   }
 });
+test("unavailable browser storage never blocks quiz history", () => {
+  Object.assign(globalThis, { window: {}, localStorage: {
+    getItem: () => { throw new Error("blocked"); },
+    setItem: () => { throw new Error("blocked"); },
+  } });
+  try {
+    assert.deepEqual(getSeenStems(), []);
+    assert.doesNotThrow(() => recordQuestionsAsSeen([{ question: sample.question }]));
+  } finally {
+    Reflect.deleteProperty(globalThis, "window"); Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
 test("offline fallback cannot relax difficulty, category, or exclusions", () => {
   resetSessionHistory();
   assert.throws(() => buildGame({ sport: "UFC", difficulty: "Legendary", count: 10 }));
