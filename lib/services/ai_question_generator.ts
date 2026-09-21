@@ -350,12 +350,17 @@ function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
  */
 async function generateViaGemini(options: GenerateOptions, apiKey: string, model: string): Promise<RawGeneratedQuestion[]> {
   const prompt = buildPrompt(options);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const response = await fetch(endpoint, {
     method: "POST",
     signal: AbortSignal.timeout(Math.max(1, Math.min(30000, (options.deadline || Date.now() + 30000) - Date.now()))),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      // Works with both legacy AIza keys and the newer AQ authorization keys.
+      // AQ keys can be rejected when sent through the legacy ?key= query.
+      "x-goog-api-key": apiKey,
+    },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {

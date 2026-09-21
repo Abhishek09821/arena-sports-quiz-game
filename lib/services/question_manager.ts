@@ -112,7 +112,20 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
         if (!ok && typeof q?.question === "string") rejected.push(q.question);
         return ok;
       });
-      const reviewed = await services.review(options, candidates);
+      let reviewed: RawGeneratedQuestion[];
+      try {
+        reviewed = await services.review(options, candidates);
+      } catch (error) {
+        // The candidates above have already passed deterministic schema,
+        // selection, answer-mapping, date, difficulty and duplicate checks.
+        // An optional second AI fact-check must not turn a valid generated
+        // quiz into a 500 when that reviewer is rate-limited or unavailable.
+        console.warn(
+          "[question review] External reviewer unavailable; using locally validated candidates:",
+          error instanceof Error ? error.message : String(error)
+        );
+        reviewed = candidates;
+      }
       const approved = new Set(reviewed.map(q => JSON.stringify(q)));
       let filled = 0;
       for (const candidate of candidates) {

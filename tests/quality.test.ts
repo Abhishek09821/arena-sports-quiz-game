@@ -47,6 +47,14 @@ test("automatically replaces reviewer-rejected and off-idol candidates", async (
   assert.equal(deck.questions.length, 1);
   assert.equal(deck.questions[0].options[deck.questions[0].answer], "McLaren");
 });
+test("reviewer outage does not discard locally validated AI questions", async () => {
+  const deck = await generatePersonalizedQuiz({ ...context, mode: "idol", count: 1 }, {
+    generate: async () => [sample],
+    review: async () => { throw new Error("review provider unavailable"); },
+  });
+  assert.equal(deck.questions.length, 1);
+  assert.equal(deck.questions[0].question, sample.question);
+});
 test("exhausted verification fails closed rather than serving a short or easy deck", async () => {
   await assert.rejects(generatePersonalizedQuiz({ ...context, mode: "idol", count: 10 }, {
     generate: async () => [{ ...sample, difficulty: "Easy" }], review: async (_o, qs) => qs,
