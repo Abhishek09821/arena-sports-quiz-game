@@ -3,17 +3,12 @@
  * ARENA VOICE CHAT — WebRTC P2P Voice Manager
  * ═══════════════════════════════════════════════════════════════
  * Low-latency peer-to-peer voice chat for 1v1 multiplayer rooms.
- * Uses WebRTC with STUN/TURN ICE servers and Socket.IO signaling.
+ * Uses WebRTC with STUN/TURN ICE servers and Supabase/Socket signaling.
  *
- * Architecture:
- *   Player A ──offer──▸ Socket.IO ──▸ Player B
- *   Player B ──answer──▸ Socket.IO ──▸ Player A
- *   Both ──ICE candidates──▸ Socket.IO ──▸ Both
- *   Result: Direct P2P audio stream (~50ms latency)
+ * Full W3C Perfect Negotiation, mobile Safari/Chrome compatibility,
+ * secure context verification, and defense against malformed SDP payloads.
  * ═══════════════════════════════════════════════════════════════
  */
-
-import type { Socket } from "socket.io-client";
 
 export type VoiceState = "idle" | "connecting" | "connected" | "failed" | "no-mic";
 
@@ -31,15 +26,16 @@ export interface VoiceChatCallbacks {
 }
 
 /**
- * ICE server configuration — STUN for most connections,
- * TURN (relay) for strict NAT/firewall environments.
- * TURN credentials are env-configurable.
+ * ICE server configuration — Multiple public STUN servers for robust
+ * mobile/cellular NAT traversal, plus optional custom TURN servers.
  */
 function getIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:global.stun.twilio.com:3478" },
+    { urls: "stun:stun.cloudflare.com:3478" },
   ];
 
   // Optional TURN fallback (configured via environment variables)
@@ -70,6 +66,67 @@ function getIceServers(): RTCIceServer[] {
   }
 
   return servers;
+}
+
+/**
+ * Safely extracts a valid RTCSessionDescriptionInit { type, sdp } from any payload
+ * format, whether it was double-wrapped by signaling or sent raw.
+ */
+export function extractSdp(raw: any): RTCSessionDescriptionInit | null {
+  if (!raw) return null;
+
+  // 1. Direct RTCSessionDescriptionInit: { type: "offer" | "answer", sdp: "..." }
+  if (
+    typeof raw.type === "string" &&
+    typeof raw.sdp === "string" &&
+    (raw.type === "offer" || raw.type === "answer" || raw.type === "pranswer" || raw.type === "rollback")
+  ) {
+    return { type: raw.type, sdp: raw.sdp };
+  }
+
+  // 2. Nested under .sdp property: { sdp: { type: "...", sdp: "..." } }
+  if (raw.sdp && typeof raw.sdp === "object") {
+    return extractSdp(raw.sdp);
+  }
+
+  // 3. RTCSessionDescription instance with .toJSON()
+  if (typeof raw.type === "string" && typeof raw.toJSON === "function") {
+    try {
+      const json = raw.toJSON();
+      if (json && typeof json.type === "string" && typeof json.sdp === "string") {
+        return { type: json.type, sdp: json.sdp };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * Safely extracts a valid RTCIceCandidateInit from any candidate signal payload.
+ */
+export function extractIceCandidate(raw: any): RTCIceCandidateInit | null {
+  if (!raw) return null;
+
+  if (raw.candidate && typeof raw.candidate === "object") {
+    return extractIceCandidate(raw.candidate);
+  }
+
+  const candidateStr = typeof raw.candidate === "string" ? raw.candidate : undefined;
+  const sdpMid = raw.sdpMid !== undefined && raw.sdpMid !== null ? String(raw.sdpMid) : null;
+  const sdpMLineIndex = typeof raw.sdpMLineIndex === "number" ? raw.sdpMLineIndex : null;
+  const usernameFragment = typeof raw.usernameFragment === "string" ? raw.usernameFragment : undefined;
+
+  if (candidateStr !== undefined || sdpMid !== null || sdpMLineIndex !== null) {
+    const res: RTCIceCandidateInit = {};
+    if (candidateStr !== undefined) res.candidate = candidateStr;
+    if (sdpMid !== null) res.sdpMid = sdpMid;
+    if (sdpMLineIndex !== null) res.sdpMLineIndex = sdpMLineIndex;
+    if (usernameFragment !== undefined) res.usernameFragment = usernameFragment;
+    return res;
+  }
+
+  return null;
 }
 
 /**
@@ -109,7 +166,7 @@ export async function requestUserAudioStream(): Promise<MediaStream> {
       });
     } catch (err: any) {
       console.warn("[VoiceChat] High-fidelity constraints failed, trying universal audio: true", err);
-      // If user explicitly denied permission, re-throw immediately so we don't spam attempts
+      // If user explicitly denied permission, re-throw immediately
       if (
         err?.name === "NotAllowedError" ||
         err?.name === "PermissionDeniedError" ||
@@ -205,7 +262,6 @@ export class VoiceChatManager {
     this.createPeerConnection();
 
     // Check if mic permission was already granted previously; if so, attach stream.
-    // If not granted, we do NOT trigger an unprompted getUserMedia to prevent browser permission policy violations.
     try {
       if (
         typeof navigator !== "undefined" &&
@@ -218,7 +274,7 @@ export class VoiceChatManager {
           .query({ name: "microphone" as PermissionName })
           .catch(() => null);
 
-        if (perm && perm.state === "granted") {
+        if (perm && perm.state === "granted" && !this.localStream) {
           this.localStream = await requestUserAudioStream();
 
           this.localStream.getAudioTracks().forEach((track) => {
@@ -227,11 +283,16 @@ export class VoiceChatManager {
 
           if (this.pc && this.localStream) {
             const audioTrack = this.localStream.getAudioTracks()[0];
-            const sender = this.pc.getSenders().find(
-              (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
-            );
-            if (sender && audioTrack) {
-              await sender.replaceTrack(audioTrack);
+            if (audioTrack) {
+              const transceiver = this.pc.getTransceivers().find(
+                (t) => t.receiver?.track?.kind === "audio" || t.sender?.track?.kind === "audio"
+              );
+              if (transceiver && transceiver.sender) {
+                await transceiver.sender.replaceTrack(audioTrack);
+                transceiver.direction = "sendrecv";
+              } else {
+                this.pc.addTrack(audioTrack, this.localStream);
+              }
             }
           }
         }
@@ -257,32 +318,24 @@ export class VoiceChatManager {
       iceCandidatePoolSize: 2,
     });
 
-    // Ensure bidirectional audio transceiver is configured on connection setup
-    try {
-      this.pc.addTransceiver("audio", { direction: "sendrecv" });
-    } catch (e) {
-      console.warn("[VoiceChat] addTransceiver note:", e);
-    }
-
-    // Add local audio tracks to connection if already available
+    // Ensure audio transceiver is configured on connection setup
     if (this.localStream) {
       const audioTrack = this.localStream.getAudioTracks()[0];
       if (audioTrack) {
-        const sender = this.pc.getSenders().find(
-          (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
-        );
-        if (sender) {
-          sender.replaceTrack(audioTrack).catch(console.warn);
-        } else {
-          this.pc.addTrack(audioTrack, this.localStream);
-        }
+        this.pc.addTrack(audioTrack, this.localStream);
+      }
+    } else {
+      try {
+        this.pc.addTransceiver("audio", { direction: "sendrecv" });
+      } catch (e) {
+        console.warn("[VoiceChat] addTransceiver note:", e);
       }
     }
 
     // Handle incoming remote audio stream
     this.pc.ontrack = (event) => {
       console.log("[VoiceChat] Remote track received:", event.track.id, "kind:", event.track.kind);
-      
+
       let audioEl = this.remoteAudio;
       if (!audioEl) {
         if (typeof document !== "undefined") {
@@ -293,7 +346,14 @@ export class VoiceChatManager {
             existing.autoplay = true;
             existing.setAttribute("playsinline", "true");
             existing.setAttribute("webkit-playsinline", "true");
-            existing.style.display = "none";
+            // Do NOT use display: none on iOS Safari as WebKit throttles hidden audio elements
+            existing.style.position = "fixed";
+            existing.style.top = "-9999px";
+            existing.style.left = "-9999px";
+            existing.style.width = "1px";
+            existing.style.height = "1px";
+            existing.style.opacity = "0";
+            existing.style.pointerEvents = "none";
             document.body.appendChild(existing);
           }
           audioEl = existing;
@@ -389,10 +449,14 @@ export class VoiceChatManager {
       }
     };
 
-    // Negotiation needed: allow BOTH host and guest to renegotiate when tracks are added
+    // Negotiation needed: allow renegotiation when tracks are added
     this.pc.onnegotiationneeded = async () => {
-      if (this.pc?.signalingState === "stable") {
-        await this.createOffer();
+      try {
+        if (this.pc?.signalingState === "stable") {
+          await this.createOffer();
+        }
+      } catch (err) {
+        console.warn("[VoiceChat] Negotiation error:", err);
       }
     };
   }
@@ -407,6 +471,9 @@ export class VoiceChatManager {
         offerToReceiveAudio: true,
         offerToReceiveVideo: false,
       });
+
+      if (this.pc.signalingState !== "stable") return;
+
       await this.pc.setLocalDescription(offer);
 
       this.signaler.emit("webrtc_offer", {
@@ -438,25 +505,36 @@ export class VoiceChatManager {
   }
 
   /** Handle incoming SDP offer from remote peer */
-  private async handleOffer(sdp: RTCSessionDescriptionInit): Promise<void> {
+  private async handleOffer(rawData: any): Promise<void> {
     if (!this.pc || this.destroyed) return;
 
-    // Polite peer collision handling
-    const offerCollision = this.makingOffer || this.pc.signalingState !== "stable";
-    this.ignoreOffer = !this.isInitiator && offerCollision;
+    const sdp = extractSdp(rawData);
+    if (!sdp) {
+      console.warn("[VoiceChat] Invalid SDP offer received:", rawData);
+      return;
+    }
+
+    // W3C Perfect Negotiation:
+    // Host (isInitiator) is impolite and ignores colliding offers.
+    // Guest (!isInitiator) is polite, rolls back local offer, and accepts host offer.
+    const isCollision = this.makingOffer || this.pc.signalingState !== "stable";
+    this.ignoreOffer = this.isInitiator && isCollision;
 
     if (this.ignoreOffer) {
-      console.log("[VoiceChat] Ignoring colliding offer (impolite peer)");
+      console.log("[VoiceChat] Host ignoring colliding offer from guest");
       return;
+    }
+
+    if (isCollision && !this.isInitiator) {
+      console.log("[VoiceChat] Polite peer rolling back to accept remote offer");
+      await this.pc.setLocalDescription({ type: "rollback" } as RTCSessionDescriptionInit).catch(() => {});
     }
 
     try {
       await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
       await this.flushCandidateQueue();
 
-      // CRITICAL FOR 2-WAY AUDIO:
       // Ensure local audio transceiver is explicitly configured as 'sendrecv'
-      // before creating the answer, so the SDP answer advertises two-way audio capability!
       const audioTransceiver = this.pc.getTransceivers().find(
         (t) => t.receiver?.track?.kind === "audio" || t.sender?.track?.kind === "audio"
       );
@@ -464,15 +542,12 @@ export class VoiceChatManager {
         audioTransceiver.direction = "sendrecv";
       }
 
-      // If guest already has a local stream, attach it so answer includes guest audio
+      // If peer already has a local stream, attach it so answer includes local audio
       if (this.localStream) {
         const audioTrack = this.localStream.getAudioTracks()[0];
         if (audioTrack) {
-          const sender = this.pc.getSenders().find(
-            (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
-          );
-          if (sender) {
-            await sender.replaceTrack(audioTrack);
+          if (audioTransceiver && audioTransceiver.sender) {
+            await audioTransceiver.sender.replaceTrack(audioTrack);
           } else {
             this.pc.addTrack(audioTrack, this.localStream);
           }
@@ -493,13 +568,20 @@ export class VoiceChatManager {
   }
 
   /** Handle incoming SDP answer from remote peer */
-  private async handleAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
+  private async handleAnswer(rawData: any): Promise<void> {
     if (!this.pc || this.destroyed) return;
+
+    const sdp = extractSdp(rawData);
+    if (!sdp) {
+      console.warn("[VoiceChat] Invalid SDP answer received:", rawData);
+      return;
+    }
 
     try {
       if (this.pc.signalingState === "have-local-offer") {
         await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
         await this.flushCandidateQueue();
+        console.log("[VoiceChat] Remote answer accepted successfully!");
       }
     } catch (err) {
       console.error("[VoiceChat] Handle answer error:", err);
@@ -507,8 +589,13 @@ export class VoiceChatManager {
   }
 
   /** Handle incoming ICE candidate from remote peer */
-  private async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+  private async handleIceCandidate(rawData: any): Promise<void> {
     if (!this.pc || this.destroyed) return;
+
+    const candidate = extractIceCandidate(rawData);
+    if (!candidate) {
+      return;
+    }
 
     // If remote description isn't set yet, queue the candidate to prevent drop
     if (!this.pc.remoteDescription || !this.pc.remoteDescription.type) {
@@ -517,11 +604,8 @@ export class VoiceChatManager {
     }
 
     try {
-      if (candidate) {
-        await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
-      }
+      await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-      // Silently ignore non-fatal ICE candidate errors (common during renegotiation)
       if (!(err instanceof DOMException && err.name === "InvalidStateError")) {
         console.warn("[VoiceChat] Add ICE candidate error:", err);
       }
@@ -555,22 +639,22 @@ export class VoiceChatManager {
 
   /** Bind listeners for WebRTC signaling */
   private bindSocketListeners(): void {
-    this.signaler.on("webrtc_offer", (data: { sdp: RTCSessionDescriptionInit; from: string }) => {
-      if (data.from !== this.playerToken) {
-        this.handleOffer(data.sdp);
-      }
+    this.signaler.on("webrtc_offer", (data: any) => {
+      const from = data?.from || data?.playerToken;
+      if (from && from === this.playerToken) return;
+      this.handleOffer(data);
     });
 
-    this.signaler.on("webrtc_answer", (data: { sdp: RTCSessionDescriptionInit; from: string }) => {
-      if (data.from !== this.playerToken) {
-        this.handleAnswer(data.sdp);
-      }
+    this.signaler.on("webrtc_answer", (data: any) => {
+      const from = data?.from || data?.playerToken;
+      if (from && from === this.playerToken) return;
+      this.handleAnswer(data);
     });
 
-    this.signaler.on("webrtc_ice_candidate", (data: { candidate: RTCIceCandidateInit; from: string }) => {
-      if (data.from !== this.playerToken) {
-        this.handleIceCandidate(data.candidate);
-      }
+    this.signaler.on("webrtc_ice_candidate", (data: any) => {
+      const from = data?.from || data?.playerToken;
+      if (from && from === this.playerToken) return;
+      this.handleIceCandidate(data);
     });
   }
 
@@ -596,24 +680,16 @@ export class VoiceChatManager {
           if (this.pc && this.localStream) {
             const audioTrack = this.localStream.getAudioTracks()[0];
             if (audioTrack) {
-              const sender = this.pc.getSenders().find(
-                (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+              const transceiver = this.pc.getTransceivers().find(
+                (t) => t.receiver?.track?.kind === "audio" || t.sender?.track?.kind === "audio"
               );
-              if (sender) {
-                await sender.replaceTrack(audioTrack);
+              if (transceiver && transceiver.sender) {
+                await transceiver.sender.replaceTrack(audioTrack);
+                transceiver.direction = "sendrecv";
               } else {
                 this.pc.addTrack(audioTrack, this.localStream);
               }
 
-              // Ensure transceiver direction is explicitly sendrecv
-              const transceiver = this.pc.getTransceivers().find(
-                (t) => t.sender === sender || t.receiver?.track?.kind === "audio"
-              );
-              if (transceiver && transceiver.direction !== "sendrecv") {
-                transceiver.direction = "sendrecv";
-              }
-
-              // Send renegotiation offer so other player receives this track
               if (this.pc.signalingState === "stable") {
                 await this.createOffer();
               }
@@ -654,11 +730,11 @@ export class VoiceChatManager {
         // Ensure track is attached to sender and transceiver is active
         if (this.pc) {
           const audioTrack = this.localStream.getAudioTracks()[0];
-          const sender = this.pc.getSenders().find(
-            (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+          const transceiver = this.pc.getTransceivers().find(
+            (t) => t.receiver?.track?.kind === "audio" || t.sender?.track?.kind === "audio"
           );
-          if (sender && audioTrack) {
-            await sender.replaceTrack(audioTrack);
+          if (transceiver && transceiver.sender && audioTrack) {
+            await transceiver.sender.replaceTrack(audioTrack);
           }
           if (this.pc.signalingState === "stable") {
             await this.createOffer();
@@ -719,20 +795,14 @@ export class VoiceChatManager {
     if (this.pc) {
       const audioTrack = this.localStream.getAudioTracks()[0];
       if (audioTrack) {
-        const sender = this.pc.getSenders().find(
-          (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+        const transceiver = this.pc.getTransceivers().find(
+          (t) => t.receiver?.track?.kind === "audio" || t.sender?.track?.kind === "audio"
         );
-        if (sender) {
-          await sender.replaceTrack(audioTrack);
+        if (transceiver && transceiver.sender) {
+          await transceiver.sender.replaceTrack(audioTrack);
+          transceiver.direction = "sendrecv";
         } else {
           this.pc.addTrack(audioTrack, this.localStream);
-        }
-
-        const transceiver = this.pc.getTransceivers().find(
-          (t) => t.sender === sender || t.receiver?.track?.kind === "audio"
-        );
-        if (transceiver && transceiver.direction !== "sendrecv") {
-          transceiver.direction = "sendrecv";
         }
 
         if (this.pc.signalingState === "stable") {

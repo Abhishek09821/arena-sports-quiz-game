@@ -744,18 +744,18 @@ export default function MultiplayerPage() {
           }
         })
         .on("broadcast", { event: "webrtc_offer" }, ({ payload }) => {
-          if (payload?.from !== myIdRef.current && payload?.sdp) {
-            webrtcSignalHandlersRef.current.onOffer?.(payload.sdp);
+          if (payload?.from !== myIdRef.current) {
+            webrtcSignalHandlersRef.current.onOffer?.(payload);
           }
         })
         .on("broadcast", { event: "webrtc_answer" }, ({ payload }) => {
-          if (payload?.from !== myIdRef.current && payload?.sdp) {
-            webrtcSignalHandlersRef.current.onAnswer?.(payload.sdp);
+          if (payload?.from !== myIdRef.current) {
+            webrtcSignalHandlersRef.current.onAnswer?.(payload);
           }
         })
         .on("broadcast", { event: "webrtc_ice_candidate" }, ({ payload }) => {
-          if (payload?.from !== myIdRef.current && payload?.candidate) {
-            webrtcSignalHandlersRef.current.onCandidate?.(payload.candidate);
+          if (payload?.from !== myIdRef.current) {
+            webrtcSignalHandlersRef.current.onCandidate?.(payload);
           }
         })
         .subscribe((subStatus) => {
@@ -1272,6 +1272,13 @@ export default function MultiplayerPage() {
         return;
       } catch (err: any) {
         console.warn("[Multiplayer] toggleMic acquire error:", err);
+        const msg =
+          err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError"
+            ? "Microphone access blocked. Please allow microphone in your browser settings (address bar icon) and tap Unmute again."
+            : `Could not access mic: ${err?.message || "Permission error"}`;
+        setVoiceError(msg);
+        setTimeout(() => setVoiceError(null), 8000);
+        return;
       }
     }
 
