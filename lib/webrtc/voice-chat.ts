@@ -174,13 +174,23 @@ export class VoiceChatManager {
     roomCode: string,
     playerToken: string,
     isInitiator: boolean,
-    callbacks: VoiceChatCallbacks
+    callbacks: VoiceChatCallbacks,
+    initialStream?: MediaStream | null
   ) {
     this.signaler = signaler;
     this.roomCode = roomCode;
     this.playerToken = playerToken;
     this.isInitiator = isInitiator;
     this.callbacks = callbacks;
+
+    if (initialStream) {
+      this.localStream = initialStream;
+      this.isMuted = false;
+      this.localStream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      this.callbacks.onMuteChange(false);
+    }
 
     this.bindSocketListeners();
   }
@@ -454,6 +464,21 @@ export class VoiceChatManager {
         audioTransceiver.direction = "sendrecv";
       }
 
+      // If guest already has a local stream, attach it so answer includes guest audio
+      if (this.localStream) {
+        const audioTrack = this.localStream.getAudioTracks()[0];
+        if (audioTrack) {
+          const sender = this.pc.getSenders().find(
+            (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+          );
+          if (sender) {
+            await sender.replaceTrack(audioTrack);
+          } else {
+            this.pc.addTrack(audioTrack, this.localStream);
+          }
+        }
+      }
+
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
 
@@ -681,6 +706,41 @@ export class VoiceChatManager {
   private setState(state: VoiceState): void {
     this.state = state;
     this.callbacks.onStateChange(state);
+  }
+
+  /** Attach a freshly acquired stream to existing connection */
+  async attachLocalStream(stream: MediaStream): Promise<void> {
+    this.localStream = stream;
+    this.isMuted = false;
+    this.localStream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+
+    if (this.pc) {
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        const sender = this.pc.getSenders().find(
+          (s) => s.track?.kind === "audio" || (s as any).kind === "audio"
+        );
+        if (sender) {
+          await sender.replaceTrack(audioTrack);
+        } else {
+          this.pc.addTrack(audioTrack, this.localStream);
+        }
+
+        const transceiver = this.pc.getTransceivers().find(
+          (t) => t.sender === sender || t.receiver?.track?.kind === "audio"
+        );
+        if (transceiver && transceiver.direction !== "sendrecv") {
+          transceiver.direction = "sendrecv";
+        }
+
+        if (this.pc.signalingState === "stable") {
+          await this.createOffer();
+        }
+      }
+    }
+    this.callbacks.onMuteChange(false);
   }
 
   /** Clean up all resources */

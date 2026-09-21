@@ -29,7 +29,7 @@ import { buildGame } from "@/lib/quiz";
 import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
-import { VoiceChatManager, type VoiceState, type VoiceSignaler } from "@/lib/webrtc/voice-chat";
+import { VoiceChatManager, requestUserAudioStream, type VoiceState, type VoiceSignaler } from "@/lib/webrtc/voice-chat";
 
 type RoomStatus = "idle" | "lobby" | "playing" | "finished";
 type GamePhase = "buzzer" | "answering" | "revealed";
@@ -109,6 +109,12 @@ export default function MultiplayerPage() {
   const [isMicMuted, setIsMicMuted] = useState(true);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const voiceChatRef = useRef<VoiceChatManager | null>(null);
+  const localAudioStreamRef = useRef<MediaStream | null>(null);
+  const webrtcSignalHandlersRef = useRef<{
+    onOffer?: (sdp: any) => void;
+    onAnswer?: (sdp: any) => void;
+    onCandidate?: (candidate: any) => void;
+  }>({});
 
   // Opponent disconnected modal & Solo Mode state
   const [opponentLeftModalOpen, setOpponentLeftModalOpen] = useState(false);
@@ -737,6 +743,21 @@ export default function MultiplayerPage() {
             handleOpponentLeft(left.name || "Opponent");
           }
         })
+        .on("broadcast", { event: "webrtc_offer" }, ({ payload }) => {
+          if (payload?.from !== myIdRef.current && payload?.sdp) {
+            webrtcSignalHandlersRef.current.onOffer?.(payload.sdp);
+          }
+        })
+        .on("broadcast", { event: "webrtc_answer" }, ({ payload }) => {
+          if (payload?.from !== myIdRef.current && payload?.sdp) {
+            webrtcSignalHandlersRef.current.onAnswer?.(payload.sdp);
+          }
+        })
+        .on("broadcast", { event: "webrtc_ice_candidate" }, ({ payload }) => {
+          if (payload?.from !== myIdRef.current && payload?.candidate) {
+            webrtcSignalHandlersRef.current.onCandidate?.(payload.candidate);
+          }
+        })
         .subscribe((subStatus) => {
           if (subStatus === "SUBSCRIBED") {
             setConnected(true);
@@ -796,6 +817,18 @@ export default function MultiplayerPage() {
     setIsCreating(true);
     setJoinError(null);
     audio.click();
+
+    // 🎙️ Request microphone permission immediately on user tap gesture
+    try {
+      if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+        const stream = await requestUserAudioStream();
+        localAudioStreamRef.current = stream;
+        setIsMicMuted(false);
+      }
+    } catch (err: any) {
+      console.warn("[Multiplayer] Mic permission on createRoom:", err);
+    }
+
     const code = generateRoomCode();
     setRoomCode(code);
     setCodeInput(code);
@@ -913,6 +946,17 @@ export default function MultiplayerPage() {
     setIsJoining(true);
     setJoinError(null);
     audio.select();
+
+    // 🎙️ Request microphone permission immediately on user tap gesture
+    try {
+      if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+        const stream = await requestUserAudioStream();
+        localAudioStreamRef.current = stream;
+        setIsMicMuted(false);
+      }
+    } catch (err: any) {
+      console.warn("[Multiplayer] Mic permission on joinRoom:", err);
+    }
 
     try {
       // 1. Register player in room
@@ -1115,13 +1159,19 @@ export default function MultiplayerPage() {
           });
         },
         on: (event: string, handler: (data: any) => void) => {
-          channel.on("broadcast", { event }, (msg: any) => {
-            if (msg.payload?.from !== myIdRef.current) {
-              handler(msg.payload);
-            }
-          });
+          if (event === "webrtc_offer") {
+            webrtcSignalHandlersRef.current.onOffer = handler;
+          } else if (event === "webrtc_answer") {
+            webrtcSignalHandlersRef.current.onAnswer = handler;
+          } else if (event === "webrtc_ice_candidate") {
+            webrtcSignalHandlersRef.current.onCandidate = handler;
+          }
         },
-        off: () => {},
+        off: (event: string) => {
+          if (event === "webrtc_offer") delete webrtcSignalHandlersRef.current.onOffer;
+          if (event === "webrtc_answer") delete webrtcSignalHandlersRef.current.onAnswer;
+          if (event === "webrtc_ice_candidate") delete webrtcSignalHandlersRef.current.onCandidate;
+        },
       };
     }
     return null;
@@ -1142,13 +1192,14 @@ export default function MultiplayerPage() {
           onStateChange: (state) => setVoiceState(state),
           onMuteChange: (muted) => setIsMicMuted(muted),
           onRemoteAudioStart: () => {
-            addEvent("🎙️ Voice chat connected!");
+            addEvent("🎙️ Voice chat connected! Both players can speak.");
           },
           onError: (msg) => {
             setVoiceError(msg);
             setTimeout(() => setVoiceError(null), 8000);
           },
-        }
+        },
+        localAudioStreamRef.current
       );
 
       voiceChatRef.current = manager;
@@ -1198,16 +1249,30 @@ export default function MultiplayerPage() {
           onStateChange: (state) => setVoiceState(state),
           onMuteChange: (muted) => setIsMicMuted(muted),
           onRemoteAudioStart: () => {
-            addEvent("🎙️ Voice chat connected!");
+            addEvent("🎙️ Voice chat connected! Both players can speak.");
           },
           onError: (msg) => {
             setVoiceError(msg);
             setTimeout(() => setVoiceError(null), 8000);
           },
-        }
+        },
+        localAudioStreamRef.current
       );
       voiceChatRef.current = manager;
       manager.initialize().catch(console.warn);
+    }
+
+    // If local stream isn't acquired yet, acquire it directly on user tap
+    if (!localAudioStreamRef.current) {
+      try {
+        const stream = await requestUserAudioStream();
+        localAudioStreamRef.current = stream;
+        await manager.attachLocalStream(stream);
+        setIsMicMuted(false);
+        return;
+      } catch (err: any) {
+        console.warn("[Multiplayer] toggleMic acquire error:", err);
+      }
     }
 
     // Call toggleMute directly in the synchronous user gesture stack
@@ -1223,13 +1288,18 @@ export default function MultiplayerPage() {
     (forceDisband?: boolean | React.MouseEvent | React.SyntheticEvent) => {
       audio.click();
 
-      // Destroy voice chat
+      // Destroy voice chat and release local microphone hardware
       if (voiceChatRef.current) {
         voiceChatRef.current.destroy();
         voiceChatRef.current = null;
         setVoiceState("idle");
         setIsMicMuted(true);
         setVoiceError(null);
+      }
+
+      if (localAudioStreamRef.current) {
+        localAudioStreamRef.current.getTracks().forEach((track) => track.stop());
+        localAudioStreamRef.current = null;
       }
 
       if (typeof window !== "undefined") {
