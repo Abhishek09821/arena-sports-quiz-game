@@ -1,3 +1,4 @@
+import { quizErrorResponse } from "@/lib/services/quiz_error";
 import { NextResponse } from "next/server";
 import { generateForRequest } from "@/lib/services/personalized_request";
 import { type Sport, type Difficulty } from "@/data/questions";
@@ -35,14 +36,6 @@ export async function POST(req: Request) {
       ...deck,
     });
   } catch (error) {
-    console.error("[API quiz/generate] Error:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to generate quiz",
-        message: error instanceof Error ? error.message : "An unexpected error occurred",
-      },
-      { status: 500 }
-    );
+    return quizErrorResponse(error);
   }
 }

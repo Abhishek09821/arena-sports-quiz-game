@@ -29,7 +29,7 @@ import { io, Socket } from "socket.io-client";
 import { supabase } from "@/lib/supabase";
 import { audio } from "@/lib/audio";
 import { canonicalizeStem, getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
-import { SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
+import { DECADE_OPTIONS, type DecadeOption, SPORT_LIST, TOURNAMENTS_BY_SPORT, type Question, type Sport, type Difficulty } from "@/data/questions";
 import { trackEvent } from "@/lib/analytics";
 import { VoiceChatManager, requestUserAudioStream, type VoiceState, type VoiceSignaler } from "@/lib/webrtc/voice-chat";
 
@@ -96,6 +96,7 @@ export default function MultiplayerPage() {
   const [selectedSport, setSelectedSport] = useState<Sport | "All Sports">("All Sports");
   const [selectedTournament, setSelectedTournament] = useState<string>("All Tournaments");
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | "Mixed">("Mixed");
+  const [selectedDecade, setSelectedDecade] = useState<DecadeOption>("all");
   const [selectedCount, setSelectedCount] = useState<number>(10);
   const [isCreating, setIsCreating] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
@@ -106,6 +107,7 @@ export default function MultiplayerPage() {
     difficulty: string;
     hostName: string;
     tournament?: string;
+    decade?: DecadeOption;
     count?: number;
   } | null>(null);
 
@@ -278,7 +280,7 @@ export default function MultiplayerPage() {
         setRoomCode(data.roomCode);
         setIsHost(true);
         if (data.players) setPlayers(data.players);
-        if (data.settings) { setRoomSettings(data.settings); setSelectedSport(data.settings.sport || "All Sports"); setSelectedDifficulty(data.settings.difficulty || "Mixed"); setSelectedTournament(data.settings.tournament || "All Tournaments"); }
+        if (data.settings) { setRoomSettings(data.settings); setSelectedSport(data.settings.sport || "All Sports"); setSelectedDifficulty(data.settings.difficulty || "Mixed"); setSelectedTournament(data.settings.tournament || "All Tournaments"); setSelectedDecade(data.settings.decade || "all"); }
         addEvent(`Room created (${data.settings?.difficulty || "Mixed"} • ${data.settings?.sport || "All Sports"}). Code: ${data.roomCode}`);
       });
 
@@ -286,7 +288,7 @@ export default function MultiplayerPage() {
         setRoomCode(data.roomCode);
         setIsHost(Boolean(data.isHost));
         if (data.players) setPlayers(data.players);
-        if (data.settings) { setRoomSettings(data.settings); setSelectedSport(data.settings.sport || "All Sports"); setSelectedDifficulty(data.settings.difficulty || "Mixed"); setSelectedTournament(data.settings.tournament || "All Tournaments"); }
+        if (data.settings) { setRoomSettings(data.settings); setSelectedSport(data.settings.sport || "All Sports"); setSelectedDifficulty(data.settings.difficulty || "Mixed"); setSelectedTournament(data.settings.tournament || "All Tournaments"); setSelectedDecade(data.settings.decade || "all"); }
         setStatus(data.status === "playing" ? "playing" : "lobby");
         if (data.scores) updateScoresFromMap(data.scores);
         addEvent(`Connected to room ${data.roomCode}`);
@@ -814,7 +816,7 @@ export default function MultiplayerPage() {
               setQuestions(data.questions);
               setTotalQ(data.questions.length);
               setStatus("lobby");
-              if (data.settings) { setRoomSettings(data.settings); setSelectedSport(data.settings.sport || "All Sports"); setSelectedDifficulty(data.settings.difficulty || "Mixed"); setSelectedTournament(data.settings.tournament || "All Tournaments"); }
+              if (data.settings) { setRoomSettings(data.settings); setSelectedSport(data.settings.sport || "All Sports"); setSelectedDifficulty(data.settings.difficulty || "Mixed"); setSelectedTournament(data.settings.tournament || "All Tournaments"); setSelectedDecade(data.settings.decade || "all"); }
               connectSupabaseRealtime(parsed.roomCode);
             }
           })
@@ -867,6 +869,7 @@ export default function MultiplayerPage() {
           sport: selectedSport,
           difficulty: selectedDifficulty,
           count: selectedCount,
+          decade: selectedDecade,
           category: activeTournament,
           mode: "multiplayer",
           excludeStems,
@@ -894,6 +897,7 @@ export default function MultiplayerPage() {
       difficulty: selectedDifficulty,
       tournament: selectedTournament,
       count: selectedCount,
+      decade: selectedDecade,
       hostName: name.trim() || "Host",
     });
 
@@ -910,6 +914,7 @@ export default function MultiplayerPage() {
           difficulty: selectedDifficulty,
           tournament: selectedTournament,
           count: selectedCount,
+          decade: selectedDecade,
           questions: qs,
           playerToken: myIdRef.current,
         }),
@@ -927,6 +932,7 @@ export default function MultiplayerPage() {
           difficulty: selectedDifficulty,
           tournament: selectedTournament,
           count: selectedCount,
+          decade: selectedDecade,
           questions: qs,
         });
       }
@@ -955,7 +961,7 @@ export default function MultiplayerPage() {
     } finally {
       setIsCreating(false);
     }
-  }, [token, name, selectedSport, selectedDifficulty, selectedTournament, selectedCount, connectSupabaseRealtime, addEvent]);
+  }, [token, name, selectedSport, selectedDifficulty, selectedTournament, selectedCount, selectedDecade, connectSupabaseRealtime, addEvent]);
 
   // ── Join Room ────────────────────────────────────────────
   const joinRoom = useCallback(async () => {
@@ -1010,6 +1016,7 @@ export default function MultiplayerPage() {
         setRoomCode(code);
         setIsHost(Boolean(joinData.isHost));
         setRoomSettings({
+          ...data.settings,
           hostName: data.hostName || "Host",
           sport: data.sport || "All Sports",
           difficulty: data.difficulty || "Mixed",
@@ -1084,7 +1091,7 @@ export default function MultiplayerPage() {
       if (collision) {
         const response = await fetch("/api/quiz/generate", {
           method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ sport: selectedSport, difficulty: selectedDifficulty, count: deck.length, category: selectedTournament.startsWith("All") ? undefined : selectedTournament, mode: "multiplayer", excludeStems: [...getSeenStems(), ...opponentHistory] }),
+          body: JSON.stringify({ sport: selectedSport, difficulty: selectedDifficulty, count: deck.length, decade: selectedDecade, category: selectedTournament.startsWith("All") ? undefined : selectedTournament, mode: "multiplayer", excludeStems: [...getSeenStems(), ...opponentHistory] }),
         });
         const result = await response.json();
         if (!response.ok || !result.success) throw new Error(result.message || "Unable to replace repeated questions. Please retry.");
@@ -1104,7 +1111,7 @@ export default function MultiplayerPage() {
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : "Unable to prepare the match.");
     } finally { setIsPreparing(false); }
-  }, [token, roomCode, questions, players, isPreparing, isHost, selectedSport, selectedDifficulty, selectedTournament]);
+  }, [token, roomCode, questions, players, isPreparing, isHost, selectedSport, selectedDifficulty, selectedTournament, selectedDecade]);
 
   // ── Buzz (Atomic Lock) ───────────────────────────────────
   const buzz = useCallback(() => {
@@ -1548,7 +1555,7 @@ export default function MultiplayerPage() {
               <span className="text-arena-bad">in the room.</span>
             </h1>
             <p className="text-arena-muted max-w-[700px] mt-3 leading-relaxed">
-              Create a room, share the 6-digit code, and battle head-to-head on the synchronized buzzer with 0ms timing drift.
+              Pick your sport, era and difficulty. Share a room code and race your friend to the buzzer.
             </p>
           </motion.div>
         </div>
@@ -1570,7 +1577,7 @@ export default function MultiplayerPage() {
               </div>
               <span className="arena-pill px-2.5 py-1 text-[11px] text-arena-accent font-semibold flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-arena-accent animate-pulse" />
-                {syncEngine === "socket" ? "Socket.IO Live" : "Realtime Synced"}
+                {syncEngine === "socket" ? "Live connection" : "Live connection"}
               </span>
             </div>
 
@@ -1642,6 +1649,13 @@ export default function MultiplayerPage() {
                 </div>
               </div>
             )}
+
+            <label className="block">
+              <span className="text-xs text-arena-muted uppercase tracking-wider font-bold block mb-1.5">Decade</span>
+              <select aria-label="Decade" className="arena-input" value={selectedDecade} onChange={e => setSelectedDecade(e.target.value as DecadeOption)}>
+                {DECADE_OPTIONS.map(decade => <option key={decade.value} value={decade.value}>{decade.label}</option>)}
+              </select>
+            </label>
 
             {/* Difficulty Selection */}
             <div>
@@ -1829,6 +1843,7 @@ export default function MultiplayerPage() {
                 {roomSettings.tournament && roomSettings.tournament !== "All Tournaments" && (
                   <span className="arena-pill px-2.5 py-1 text-xs">{roomSettings.tournament}</span>
                 )}
+                {roomSettings.decade && <span className="arena-pill px-2.5 py-1 text-xs">{DECADE_OPTIONS.find(d => d.value === roomSettings.decade)?.label}</span>}
                 {roomSettings.count && (
                   <span className="arena-pill px-2.5 py-1 text-xs">{roomSettings.count} Questions</span>
                 )}
@@ -1847,8 +1862,8 @@ export default function MultiplayerPage() {
                 <span className="text-sm text-arena-muted">
                   {connected
                     ? syncEngine === "socket"
-                      ? "Socket.IO Live & Synced"
-                      : "Realtime Synced"
+                      ? "Live connection & Synced"
+                      : "Live connection"
                     : "Connecting to Arena..."}
                 </span>
               </div>

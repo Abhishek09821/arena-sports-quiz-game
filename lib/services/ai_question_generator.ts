@@ -1,6 +1,9 @@
 import { type Sport, type Difficulty, DECADE_OPTIONS, type DecadeOption, IDOL_BY_SPORT } from "@/data/questions";
 import { RawGeneratedQuestion } from "./question_validator";
 
+const modelRedirects = new Map<string, string>();
+const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+
 const providerCooldown = new Map<string, number>();
 
 export const questionIdentity = (q: RawGeneratedQuestion) => JSON.stringify([q.question, q.options, q.answer, q.explanation, q.sport, q.difficulty, q.year, q.category]);
@@ -352,6 +355,7 @@ function parseAIJsonResponse(rawText: string): RawGeneratedQuestion[] {
  */
 async function generateViaGemini(options: GenerateOptions, apiKey: string, model: string): Promise<RawGeneratedQuestion[]> {
   if ((providerCooldown.get(apiKey) || 0) > Date.now()) throw new Error("Gemini is temporarily over quota. Please retry shortly.");
+  model = modelRedirects.get(model) || model;
   const prompt = buildPrompt(options);
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
@@ -377,9 +381,14 @@ async function generateViaGemini(options: GenerateOptions, apiKey: string, model
   });
 
   if (!response.ok) {
+    if (response.status === 404 && model !== DEFAULT_GEMINI_MODEL) {
+      modelRedirects.set(model, DEFAULT_GEMINI_MODEL);
+      return generateViaGemini(options, apiKey, DEFAULT_GEMINI_MODEL);
+    }
     if (response.status === 429) providerCooldown.set(apiKey, Date.now() + 60000);
     const errorText = await response.text();
-    throw new Error(`Gemini API error (${response.status}): ${errorText.slice(0, 300)}`);
+    console.warn(`[Gemini] HTTP ${response.status} for ${model}: ${errorText.slice(0, 180)}`);
+    throw new Error(response.status === 429 ? "AI quota is exhausted. Please check the Gemini project quota or retry after it resets." : response.status === 401 || response.status === 403 ? "The AI provider rejected its API credentials. Please check the server configuration." : response.status === 404 ? "The configured AI model is unavailable. Please update the server model setting." : "The AI provider is temporarily unavailable. Please retry shortly.");
   }
 
   const data = await response.json();
@@ -514,7 +523,7 @@ async function generateWithKey(
     return await generateViaOpenAICompatible(options, "https://api.x.ai/v1", trimmed, model);
   } else {
     // Gemini key (standard or service account)
-    const model = preferredModel || process.env.AI_MODEL || "gemini-2.5-flash";
+    const model = preferredModel || process.env.AI_MODEL || DEFAULT_GEMINI_MODEL;
     return await generateViaGemini(options, trimmed, model);
   }
 }
@@ -529,114 +538,22 @@ async function generateWithKey(
  */
 async function generateSingleBatch(options: GenerateOptions): Promise<RawGeneratedQuestion[]> {
   const mode = options.mode === "classic" || options.mode === "sprint" ? "challenge" : options.mode || "challenge";
-
-  // Mode 1: Multiplayer dedicated key (or Groq/xAI fallback)
-  const multiplayerKey =
-    process.env.MULTIPLAYER_AI_API_KEY ||
-    process.env.GROQ_API_KEY ||
-    process.env.XAI_API_KEY ||
-    process.env.GROK_API_KEY;
-
-  // Mode 2: Challenge dedicated key (or Gemini fallback)
-  const challengeKey =
-    process.env.CHALLENGE_AI_API_KEY ||
-    process.env.GEMINI_CHALLENGE_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-
-  // Mode 3: Know Your Idol dedicated key (or Gemini Idol fallback)
-  const idolKey =
-    process.env.IDOL_AI_API_KEY ||
-    process.env.GEMINI_IDOL_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-
-  // Global shared backups
-  const sharedGeminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-
-  // ── 1v1 Multiplayer: Fast low-latency primary (multiplayerKey), Gemini fallback ──
-  if (mode === "multiplayer") {
-    if (multiplayerKey) {
-      try {
-        return await generateWithKey(options, multiplayerKey, process.env.MULTIPLAYER_AI_MODEL || process.env.GROQ_MODEL);
-      } catch (err) {
-        console.warn(`[AI Generator - Multiplayer Key failed]: ${err instanceof Error ? err.message : String(err)}. Engaging fallback.`);
-      }
-    }
-
-    if (challengeKey && challengeKey !== multiplayerKey) {
-      try {
-        return await generateWithKey(options, challengeKey);
-      } catch (err) {
-        console.warn(`[AI Generator - Challenge Backup for multiplayer]: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (sharedGeminiKey && sharedGeminiKey !== multiplayerKey) {
-      try {
-        return await generateWithKey(options, sharedGeminiKey);
-      } catch (err) {
-        console.warn(`[AI Generator - Gemini Backup for multiplayer]: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
+  const providers = {
+    multiplayer: {key:process.env.MULTIPLAYER_AI_API_KEY || process.env.GROQ_API_KEY || process.env.XAI_API_KEY, model:process.env.MULTIPLAYER_AI_MODEL || process.env.GROQ_MODEL},
+    challenge: {key:process.env.CHALLENGE_AI_API_KEY || process.env.GEMINI_CHALLENGE_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY, model:process.env.CHALLENGE_AI_MODEL || process.env.AI_MODEL},
+    idol: {key:process.env.IDOL_AI_API_KEY || process.env.GEMINI_IDOL_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY, model:process.env.IDOL_AI_MODEL || process.env.AI_MODEL},
+  };
+  const primary = providers[mode];
+  const tried = new Set<string>();
+  let failure: Error | undefined;
+  for (const provider of [primary, providers.challenge, providers.idol, providers.multiplayer]) {
+    if (!provider.key || tried.has(provider.key)) continue;
+    if (options.deadline && Date.now() >= options.deadline) break;
+    tried.add(provider.key);
+    try { return await generateWithKey(options, provider.key, provider.model); }
+    catch(error) { failure = error instanceof Error ? error : new Error("AI provider unavailable"); }
   }
-
-  // ── Challenge Mode: Gemini primary (challengeKey), Groq/Multiplayer fallback ──
-  if (mode === "challenge") {
-    if (challengeKey) {
-      try {
-        return await generateWithKey(options, challengeKey, process.env.CHALLENGE_AI_MODEL);
-      } catch (err) {
-        console.warn(`[AI Generator - Challenge Key failed]: ${err instanceof Error ? err.message : String(err)}. Engaging fallback.`);
-      }
-    }
-
-    if (idolKey && idolKey !== challengeKey) {
-      try {
-        return await generateWithKey(options, idolKey);
-      } catch (err) {
-        console.warn(`[AI Generator - Idol Key backup for challenge]: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (multiplayerKey && multiplayerKey !== challengeKey) {
-      try {
-        return await generateWithKey(options, multiplayerKey);
-      } catch (err) {
-        console.warn(`[AI Generator - Multiplayer Backup for challenge]: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  }
-
-  // ── Know Your Idol: Deep-knowledge primary (idolKey), Challenge/Groq fallback ──
-  if (mode === "idol") {
-    if (idolKey) {
-      try {
-        return await generateWithKey(options, idolKey, process.env.IDOL_AI_MODEL);
-      } catch (err) {
-        console.warn(`[AI Generator - Idol Key failed]: ${err instanceof Error ? err.message : String(err)}. Engaging fallback.`);
-      }
-    }
-
-    if (challengeKey && challengeKey !== idolKey) {
-      try {
-        return await generateWithKey(options, challengeKey);
-      } catch (err) {
-        console.warn(`[AI Generator - Challenge Key backup for idol]: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (multiplayerKey && multiplayerKey !== idolKey) {
-      try {
-        return await generateWithKey(options, multiplayerKey);
-      } catch (err) {
-        console.warn(`[AI Generator - Multiplayer Backup for idol]: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  }
-
-  // ── Resilient fallback strictly 1975-2026 if all external providers are offline ──
-  throw new Error("Question verification is unavailable. Please retry shortly; no fallback questions were used.");
+  throw failure || new Error("No AI provider is configured. Add a generation API key to the server environment.");
 }
 
 /**
@@ -683,13 +600,14 @@ export async function reviewAIQuestions(options: GenerateOptions, candidates: Ra
   const keys = [...new Set([process.env.VERIFICATION_AI_API_KEY, process.env.GEMINI_API_KEY, process.env.GOOGLE_API_KEY, process.env.CHALLENGE_AI_API_KEY, process.env.IDOL_AI_API_KEY])].filter((key): key is string => Boolean(key) && !key!.startsWith("gsk_") && !key!.startsWith("xai-"));
   if (!keys.length) throw new Error("Configure a Gemini verification key to fact-check questions.");
   let approved: RawGeneratedQuestion[] | undefined;
+  let reviewFailure: Error | undefined;
   for (const key of keys) {
     try {
-      approved = await generateViaGemini({ ...options, count:candidates.length, reviewCandidates:candidates }, key, process.env.VERIFICATION_AI_MODEL || "gemini-2.5-flash");
+      approved = await generateViaGemini({ ...options, count:candidates.length, reviewCandidates:candidates }, key, process.env.VERIFICATION_AI_MODEL || DEFAULT_GEMINI_MODEL);
       break;
-    } catch { /* Try the next configured verification key within the deadline. */ }
+    } catch (error) { reviewFailure = error instanceof Error ? error : new Error("Factual review unavailable"); }
   }
-  if (!approved) throw new Error("The factual verification service is unavailable or over quota. Please retry shortly; no unchecked questions were used.");
+  if (!approved) throw reviewFailure || new Error("The factual review service is unavailable. Please retry shortly.");
   const approvedMap = new Map(approved.filter(q => q && typeof q === "object").map(q => [questionIdentity(q), q]));
   return candidates.flatMap(q => {
     const verified = approvedMap.get(questionIdentity(q));

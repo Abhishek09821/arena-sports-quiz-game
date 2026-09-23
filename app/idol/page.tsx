@@ -7,7 +7,6 @@ import { useSearchParams } from "next/navigation";
 import { audio } from "@/lib/audio";
 import {
   SPORT_LIST,
-  SPORT_META,
   DIFFICULTY_LIST,
   IDOL_BY_SPORT,
   type Difficulty,
@@ -16,6 +15,7 @@ import {
 import { useQuizStore } from "@/lib/store";
 import { useAuth } from "@/components/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import SportIcon from "@/components/SportIcon";
 import QuizGame from "@/components/QuizGame";
 import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 import { ArrowLeft, Play, Loader2, AlertTriangle, RefreshCw, Star } from "lucide-react";
@@ -162,8 +162,8 @@ function IdolContent() {
   const selectedIdolData = idolList.find((p) => p.name === selectedIdol);
 
   return (
-    <main className="arena-container arena-mode-page pb-16">
-      <div className="pt-10 pb-6">
+    <main className="arena-container idol-page pb-12">
+      <div className="pt-7 pb-6">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors"
@@ -176,11 +176,11 @@ function IdolContent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.2, 0.9, 0.3, 1] }}
         >
-          <div className="inline-flex items-center gap-2 arena-eyebrow mt-8">
-            <Star size={14} className="text-amber-400" />
+          <div className="inline-flex items-center gap-2 arena-eyebrow mt-5">
+            <Star size={14} className="text-arena-accent" />
             <span>Know Your Idol</span>
           </div>
-          <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2 font-bold">
+          <h1 className="font-display text-[clamp(32px,5vw,52px)] tracking-[-0.06em] leading-[0.95] mt-2 font-bold">
             How well do you<br />know your legend?
           </h1>
           <p className="text-arena-muted max-w-[650px] mt-3 leading-relaxed">
@@ -197,19 +197,19 @@ function IdolContent() {
         >
           <AlertTriangle size={18} className="text-red-400 mt-0.5 shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-red-300">Generation Error</p>
-            <p className="text-xs text-red-400/80 mt-0.5">{generationError}</p>
+            <p className="text-sm font-semibold text-arena-bad">Generation Error</p>
+            <p className="text-xs text-arena-bad mt-0.5">{generationError}</p>
           </div>
           <button
             onClick={() => setGenerationError(null)}
-            className="text-red-400/60 hover:text-red-300 transition-colors"
+            className="text-red-400/60 hover:text-arena-bad transition-colors"
           >
             <RefreshCw size={14} />
           </button>
         </motion.div>
       )}
 
-      <div ref={configRef} className="grid gap-5 max-w-[780px]">
+      <div ref={configRef} className="idol-config grid gap-4 md:grid-cols-2">
         {/* Sport Selector */}
         <motion.div
           className="arena-card"
@@ -221,9 +221,8 @@ function IdolContent() {
           <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
             Choose your sport
           </h3>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {SPORT_LIST.filter(s => s !== "General Knowledge").map((s) => {
-              const meta = SPORT_META[s];
               const active = sport === s;
               return (
                 <button
@@ -235,7 +234,7 @@ function IdolContent() {
                     audio.select();
                   }}
                 >
-                  <div className="text-2xl mb-1">{meta.icon}</div>
+                  <div className="flex justify-center text-arena-accent mb-2"><SportIcon sport={s} size={30} /></div>
                   <div className="font-semibold text-xs">{s}</div>
                 </button>
               );
@@ -288,7 +287,7 @@ function IdolContent() {
               return (
                 <button
                   key={d}
-                  className="arena-card arena-tile text-center relative"
+                  className="arena-card arena-tile idol-difficulty text-center relative"
                   data-active={active ? "true" : undefined}
                   onClick={() => {
                     setDifficulty(d);
@@ -300,13 +299,12 @@ function IdolContent() {
                     style={{ background: diffColors[d] }}
                   />
                   <div className="font-semibold text-xs">{d}</div>
-                  <div className="text-[10px] text-arena-muted mt-0.5">
-                    {diffDescriptions[d]}
-                  </div>
+
                 </button>
               );
             })}
           </div>
+          <p className="text-sm text-arena-muted mt-3">{diffDescriptions[difficulty]}</p>
         </motion.div>
 
         {/* Question Count */}

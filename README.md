@@ -216,7 +216,7 @@ Factual review now requires Gemini Google Search grounding; a memory-only
 fallback was observed approving false premises in live tests and was removed.
 Set `VERIFICATION_AI_API_KEY` (or use the existing Gemini keys) with available
 Gemini and grounding quota. `VERIFICATION_AI_MODEL` defaults to
-`gemini-2.5-flash`. A quota failure is surfaced rather than bypassing review.
+`gemini-3.6-flash`. A quota failure is surfaced rather than bypassing review.
 See Google's [grounding documentation](https://ai.google.dev/gemini-api/docs/generate-content/google-search).
 
 Validation: `npm test`, `npx tsc --noEmit`, `npx next build --webpack`.

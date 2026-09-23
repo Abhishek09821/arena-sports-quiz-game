@@ -274,6 +274,8 @@ function ChallengeContent() {
   // Auto-load if code is in URL parameters (?code=XYZ123)
   useEffect(() => {
     if (searchParams.get("join") === "1") setActiveTab("play_code");
+    const requestedSport = searchParams.get("sport");
+    if (SPORT_LIST.some(s => s === requestedSport)) setAiSport(requestedSport as Sport);
     const queryCode = searchParams.get("code");
     if (queryCode) {
       const clean = queryCode.trim().toUpperCase();
@@ -289,7 +291,7 @@ function ChallengeContent() {
     audio.click();
 
     try {
-      const activeTournament = selectedTournament !== "All" ? selectedTournament : (aiCategory || undefined);
+      const activeTournament = selectedTournament === "Custom" ? aiCategory.trim() || undefined : selectedTournament.startsWith("All") ? undefined : selectedTournament;
       const res = await fetch("/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -297,17 +299,17 @@ function ChallengeContent() {
           mode: "challenge",
           sport: aiSport,
           difficulty: aiDifficulty,
+          decade: aiDecade,
           category: activeTournament,
           count: 10,
-          decade: aiDecade !== "all" ? aiDecade : undefined,
           excludeStems: getSeenStems(),
           excludeAnswers: getSeenAnswers(80),
         }),
       });
 
       const data = await res.json();
-      if (!res.ok || !data.questions || data.questions.length === 0) {
-        throw new Error(data.error || "Failed to generate 10 questions with Gemini AI.");
+      if (!res.ok || !data.questions || data.questions.length !== 10) {
+        throw new Error(data.message || data.error || "Unable to prepare a complete round.");
       }
 
       const final10 = (data.questions as Question[]).slice(0, 10);
@@ -334,13 +336,14 @@ function ChallengeContent() {
     audio.click();
 
     try {
-      const activeTournament = selectedTournament !== "All" ? selectedTournament : (aiCategory || undefined);
+      const activeTournament = selectedTournament === "Custom" ? aiCategory.trim() || undefined : selectedTournament.startsWith("All") ? undefined : selectedTournament;
       const res = await fetch("/api/challenge/generate-question", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           sport: aiSport,
           difficulty: aiDifficulty,
+          decade: aiDecade,
           category: activeTournament,
           excludeStems: [
             ...getSeenStems(),
@@ -394,7 +397,8 @@ function ChallengeContent() {
         body: JSON.stringify({
           sport: target.sport,
           difficulty: target.difficulty,
-          category: target.category || (selectedTournament !== "All" ? selectedTournament : undefined),
+          category: target.category || (selectedTournament.startsWith("All") ? undefined : selectedTournament === "Custom" ? aiCategory : selectedTournament),
+          decade: aiDecade,
           excludeStems: [
             ...getSeenStems(),
             ...questions.filter((_, i) => i !== index).map((q) => q.question),
@@ -682,9 +686,8 @@ function ChallengeContent() {
 
   return (
     <main className="arena-container arena-mode-page pb-20">
-      <Link href="/challenge/activity" className="arena-btn mt-6">My challenge players & activity</Link>
       {isReviewing && <div role="status" className="arena-container py-4 text-sm text-arena-accent">Reviewing questions and replacing repeats before your round...</div>}
-      <div className="pt-10 pb-6">
+      <div className="pt-7 pb-6">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm text-arena-muted hover:text-arena-text transition-colors"
@@ -697,27 +700,28 @@ function ChallengeContent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <div className="arena-eyebrow mt-8">Challenge Studio</div>
+          <div className="arena-eyebrow mt-5">Challenge Studio</div>
           <h1 className="font-display text-[clamp(40px,7vw,72px)] tracking-[-0.06em] leading-[0.95] mt-2 font-bold">
             Create. Dare.<br />
             <span className="arena-gradient-text">Compete.</span>
           </h1>
           <p className="text-arena-muted max-w-[700px] mt-3 leading-relaxed">
-            Build custom 10-question challenges with Google Gemini AI, manual entry, or file import.
-            Challenges stay saved on your profile across reloads and logouts until you delete them.
+            Create a 10-question quiz with AI, write your own, or import a file.
+            Share a code and see who takes your challenge.
           </p>
         </motion.div>
       </div>
 
+      <Link href="/challenge/activity" className="inline-flex text-sm text-arena-accent mb-5">View my challenge players & activity →</Link>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Question Creator Workspace */}
         <div className="lg:col-span-7 flex flex-col gap-4">
-          <div className="arena-card p-2 flex gap-1.5 flex-wrap">
+          <div className="challenge-tabs">
             <button
               className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "ai" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("ai"); audio.click(); }}
             >
-              <Sparkles size={14} /> Generate questions
+              <Sparkles size={14} /> Generate
             </button>
             <button
               className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "play_code" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
@@ -729,7 +733,7 @@ function ChallengeContent() {
               className={`arena-btn text-xs flex-1 min-w-[110px] justify-center ${activeTab === "saved" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
               onClick={() => { setActiveTab("saved"); audio.click(); }}
             >
-              <Bookmark size={14} /> My Challenges ({savedChallenges.length})
+              <Bookmark size={14} /> Saved ({savedChallenges.length})
             </button>
             <button
               className={`arena-btn text-xs flex-1 min-w-[100px] justify-center ${activeTab === "manual" ? "arena-btn-primary shadow-[0_0_15px_rgba(0,212,255,0.25)]" : "arena-btn-ghost"}`}
@@ -754,17 +758,17 @@ function ChallengeContent() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="arena-eyebrow">Google Gemini Engine</div>
-                  <h3 className="font-display font-bold text-lg">AI Challenge Generator</h3>
+                  <div className="arena-eyebrow">Your next challenge</div>
+                  <h3 className="font-display font-bold text-lg">Create your questions</h3>
                 </div>
                 <span className="arena-pill px-2.5 py-1 text-xs text-arena-accent font-semibold border-arena-accent/40">
-                  Strictly 1975–2026
+                  10 questions
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-arena-muted mb-1">Sport (Strictly 6)</label>
+                  <label className="block text-xs font-semibold text-arena-muted mb-1">Category · 4 sports + General Knowledge</label>
                   <select
                     value={aiSport}
                     onChange={(e) => {
@@ -854,11 +858,11 @@ function ChallengeContent() {
               <div className="p-4 rounded-2xl bg-arena-accent/5 border border-arena-accent/30 space-y-2">
                 <div className="flex items-center gap-2">
                   <Zap size={16} className="text-arena-accent" />
-                  <span className="text-xs font-bold text-arena-text">Instant 10-Question Generation</span>
+                  <span className="text-xs font-bold text-arena-text">Prepare a complete round</span>
                 </div>
                 <p className="text-xs text-arena-muted leading-relaxed">
-                  Synthesize an entire deck of exactly 10 unique, non-repeating trivia questions tailored to{" "}
-                  <strong className="text-arena-text">{aiSport}</strong> with Gemini AI.
+                  Prepare 10 questions matched to{" "}
+                  <strong className="text-arena-text">{aiSport}</strong> and your selected filters.
                 </p>
                 <button
                   onClick={generate10WithGemini}
@@ -868,12 +872,12 @@ function ChallengeContent() {
                   {isGenerating10 ? (
                     <div className="flex items-center gap-2">
                       <Loader2 size={16} className="animate-spin" />
-                      <span>Generating 10 Unique Questions with Gemini AI...</span>
+                      <span>Generating 10 Unique Questions and your selected filters...</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <Sparkles size={16} />
-                      <span>Generate Full 10-Question Challenge (1-Click)</span>
+                      <span>Generate 10 questions</span>
                     </div>
                   )}
                 </button>
@@ -888,7 +892,7 @@ function ChallengeContent() {
                   className="arena-btn arena-btn-ghost text-xs border border-white/10"
                 >
                   {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                  Add Next Single Question ({questions.length}/10)
+                  Add one question ({questions.length}/10)
                 </button>
               </div>
             </motion.div>
@@ -1286,7 +1290,7 @@ function ChallengeContent() {
                   <Sparkles size={20} className="mx-auto text-arena-accent" />
                   <p>No questions in deck yet.</p>
                   <p className="text-arena-text font-semibold">
-                    Click &quot;Generate Full 10-Question Challenge&quot; on the left for instant creation!
+                    Click &quot;Generate Full 10-Question Challenge&quot; on the left to prepare your round.
                   </p>
                 </div>
               ) : (

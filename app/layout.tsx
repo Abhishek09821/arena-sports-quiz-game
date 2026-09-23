@@ -2,6 +2,7 @@ import "@/app/globals.css";
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import FriendNotifications from "@/components/FriendNotifications";
+import ArenaFooter from "@/components/ArenaFooter";
 import ArenaHeader from "@/components/ArenaHeader";
 import AuthModal from "@/components/AuthModal";
 import { AuthProvider } from "@/components/AuthContext";
@@ -44,6 +45,7 @@ export default function RootLayout({
             <AuthModal />
             <FriendNotifications />
             {children}
+            <ArenaFooter />
           </div>
         </AuthProvider></ThemeProvider>
       </body>

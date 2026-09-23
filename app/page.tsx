@@ -17,10 +17,9 @@ import {
   ArrowUpRight,
   KeyRound,
   Star,
-  Linkedin,
-  Mail,
 } from "lucide-react";
-import { SPORT_LIST, SPORT_META } from "@/data/questions";
+import SportIcon from "@/components/SportIcon";
+import { SPORT_LIST, SPORT_META, MIXED_SPORTS } from "@/data/questions";
 import { audio } from "@/lib/audio";
 import { useAuth } from "@/components/AuthContext";
 
@@ -49,7 +48,7 @@ const modes = [
 ];
 
 const stats = [
-  { icon: <Swords size={16} />, value: "6", label: "Sports", color: "#00d4ff" },
+  { icon: <Swords size={16} />, value: String(MIXED_SPORTS.length), label: "Sports", detail: "Plus General Knowledge", color: "#00d4ff" },
   { icon: <Calendar size={16} />, value: "1975–2026", label: "Coverage", color: "#a855f7" },
   { icon: <HelpCircle size={16} />, value: "Every round", label: "Questions", color: "#22d37e" },
   { icon: <Users size={16} />, value: "3", label: "Game Modes", color: "#f59e0b" },
@@ -201,7 +200,7 @@ export default function Home() {
       {/* ── Stats Bar ───────────────────────────────────────── */}
       <section className="arena-container py-10">
         <AnimatedSection>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {stats.map((stat, i) => (
               <motion.div
                 key={stat.label}
@@ -214,10 +213,11 @@ export default function Home() {
               >
                 <div
                   className="w-9 h-9 rounded-xl grid place-items-center flex-shrink-0"
-                  style={{ background: `${stat.color}15`, color: stat.color }}
+                  style={{ background: "var(--color-arena-panel2)", color: "var(--color-arena-accent)" }}
                 >
                   {stat.icon}
                 </div>
+                  {stat.detail && <div className="text-[10px] text-arena-muted mt-1">{stat.detail}</div>}
                 <div>
                   <div className="font-display font-bold text-xl tracking-tight">
                     {stat.value}
@@ -267,15 +267,11 @@ export default function Home() {
                 {/* Accent line */}
                 <div
                   className="w-full h-[2px] rounded-full mb-5 opacity-50 group-hover:opacity-100 transition-opacity"
-                  style={{ background: `linear-gradient(90deg, ${mode.accent}, transparent)` }}
+                  style={{ background: "var(--color-arena-line)" }}
                 />
                 <div
                   className="w-11 h-11 rounded-xl grid place-items-center mb-4 transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg"
-                  style={{
-                    background: `${mode.accent}12`,
-                    color: mode.accent,
-                    boxShadow: `0 0 0 rgba(0,0,0,0)`,
-                  }}
+                  style={{ background: "var(--color-arena-panel2)", color: "var(--color-arena-accent)" }}
                 >
                   {mode.icon}
                 </div>
@@ -283,7 +279,6 @@ export default function Home() {
                   {mode.title}
                 </h3>
                 <p className="text-sm text-arena-muted leading-relaxed">{mode.desc}</p>
-          <Link href="/challenge?join=1" className="arena-btn arena-btn-primary mt-5">Have a challenge code? Join here →</Link>
                 <div className="mt-4 flex items-center gap-1 text-xs text-arena-muted/50 group-hover:text-arena-accent/70 transition-colors">
                   <span>Play</span>
                   <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
@@ -304,16 +299,16 @@ export default function Home() {
             <div>
               <div className="arena-eyebrow">The Arena</div>
               <h2 className="font-display text-3xl sm:text-4xl tracking-tight mt-1.5 font-bold">
-                Eight sports. One scoreboard.
+                Four sports. A world of knowledge.
               </h2>
             </div>
             <div className="arena-pill hidden sm:flex">
-              Infinite AI trivia
+              Sports + General Knowledge
             </div>
           </div>
         </AnimatedSection>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {SPORT_LIST.map((sport, i) => {
             const meta = SPORT_META[sport];
             return (
@@ -324,7 +319,7 @@ export default function Home() {
                 transition={{ delay: 0.06 * i + 0.15, duration: 0.4, ease: [0.2, 0.9, 0.3, 1] }}
               >
                 <Link
-                  href={`/idol?sport=${encodeURIComponent(sport)}`}
+                  href={sport === "General Knowledge" ? "/challenge?sport=General%20Knowledge" : `/idol?sport=${encodeURIComponent(sport)}`}
                   className="arena-card arena-card-shine arena-sport-card block group"
                   data-sport={sport}
                   onClick={(e) => {
@@ -332,7 +327,7 @@ export default function Home() {
                     selectSport(sport);
                     if (!user) {
                       e.preventDefault();
-                      requireAuth(`/idol?sport=${encodeURIComponent(sport)}`);
+                      requireAuth(sport === "General Knowledge" ? "/challenge?sport=General%20Knowledge" : `/idol?sport=${encodeURIComponent(sport)}`);
                     }
                   }}
                   style={{ "--sport-color": meta.color } as React.CSSProperties}
@@ -342,14 +337,14 @@ export default function Home() {
                     whileHover={{ scale: 1.15, rotate: 5 }}
                     transition={{ type: "spring", stiffness: 300 }}
                   >
-                    {meta.icon}
+                    <SportIcon sport={sport} size={36} />
                   </motion.div>
                   <div>
                     <h3 className="font-display font-bold tracking-tight text-base">
                       {sport === "Football" ? "Football (Soccer)" : sport}
                     </h3>
                     <div className="text-[11px] text-arena-muted mt-0.5 flex items-center gap-1">
-                      {sport === "Football" ? "FIFA & Clubs" : "1975–2026"}
+                      {sport === "General Knowledge" ? "Science, history & more" : "Tournaments & legends"}
                       <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-60 transition-opacity" />
                     </div>
                   </div>
@@ -402,70 +397,7 @@ export default function Home() {
         </AnimatedSection>
       </section>
 
-      {/* ── Footer ──────────────────────────────────────────── */}
-      <footer className="arena-container py-12 mt-8">
-        <div className="arena-divider mb-8" />
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-          <div className="min-w-0">
-            <div className="font-display text-xs tracking-[0.14em] uppercase text-arena-muted font-bold flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-arena-accent animate-pulse" />
-              Built for sport obsessives
-            </div>
-            <div className="text-sm text-arena-muted/50 mt-1.5">
-              Arena · Original verified question bank · Premium sports quiz
-              platform
-            </div>
-            <div className="mt-5 flex flex-col items-start gap-3 text-sm">
-              <a
-                href="mailto:abhishek.tiwarii9821@gmail.com"
-                className="inline-flex max-w-full items-center gap-2 text-arena-muted hover:text-arena-accent transition-colors"
-              >
-                <Mail size={15} className="shrink-0" />
-                <span className="break-all">abhishek.tiwarii9821@gmail.com</span>
-              </a>
-              <a
-                href="https://www.linkedin.com/in/abhishek-tiwari-3a3594300/"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 text-arena-muted hover:text-arena-accent transition-colors"
-              >
-                <Linkedin size={15} className="shrink-0" />
-                LinkedIn
-              </a>
-              <Link href="/admin" className="text-xs text-arena-muted/50 hover:text-arena-muted transition-colors">
-                Admin
-              </Link>
-            </div>
-          </div>
 
-          <details className="min-w-0 arena-card">
-            <summary className="cursor-pointer text-xl font-bold">FAQs & help</summary>
-            <div className="arena-eyebrow mb-3">Help desk</div>
-            <h2 id="footer-faq-title" className="font-display text-2xl font-bold tracking-tight mb-4">
-              Frequently asked questions
-            </h2>
-            <div className="grid gap-2">
-              {[
-                ["Are Arena questions generated by AI?", "Yes. Arena generates fresh questions with AI, then checks their format, sport, difficulty, answers, dates, and duplicates before a round starts."],
-                ["How does Arena prevent repeated questions?", "Questions seen on your device are saved locally. Signed-in players can also use account history so repeats are reduced across sessions and devices."],
-                ["Which sports can I play?", "Arena currently covers Cricket, Football, Basketball, and WWE/WWF, plus a separate General Knowledge option across multiple game modes."],
-                ["Do I need an account?", "An account is required for personalized rounds, saved challenges, progress, and multiplayer identity."],
-              ].map(([question, answer]) => (
-                <details key={question} className="group border-2 border-arena-line bg-arena-panel">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3.5 text-sm font-bold [&::-webkit-details-marker]:hidden">
-                    <span>{question}</span>
-                    <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180" />
-                  </summary>
-                  <p className="border-t border-arena-line px-4 py-3 text-sm leading-relaxed text-arena-muted">
-                    {answer}
-                  </p>
-                </details>
-              ))}
-            </div>
-            <p className="mt-5">Any questions or queries? <a className="text-arena-accent break-all" href="mailto:abhishek.tiwarii9821@gmail.com">Ask your question: abhishek.tiwarii9821@gmail.com</a></p>
-          </details>
-        </div>
-      </footer>
     </main>
   );
 }

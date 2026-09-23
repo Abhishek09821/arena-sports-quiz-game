@@ -108,7 +108,6 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
   const context: DeckAuditContext = { sport, difficulty, category, idol, excludeStems };
   const accepted: ValidatedQuestion[] = [];
   const rejected: string[] = [];
-  let lastFailure: Error | undefined;
   const deadline = Date.now() + 150000;
   const normalizedMode = mode === "buzzer" ? "multiplayer" : mode;
   // Fixed quotas include all four difficulties; remainders differ by at most one.
@@ -120,7 +119,7 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
       const needed = remaining.filter(d => d === target).length;
       const options = { deadline, sport, difficulty: target, count: Math.min(30, needed + 2), category, decade, idol, mode: normalizedMode, excludeStems: [...excludeStems, ...accepted.map(q => q.question), ...rejected] };
       let raw: RawGeneratedQuestion[];
-      try { raw = attempt === 0 && params.candidates ? params.candidates.filter(q => q?.difficulty === target) : await services.generate(options); } catch (error) { lastFailure = error instanceof Error ? error : new Error("AI service unavailable"); continue; }
+      try { raw = attempt === 0 && params.candidates ? params.candidates.filter(q => q?.difficulty === target) : await services.generate(options); } catch (error) { throw error instanceof Error ? error : new Error("AI service unavailable"); }
       const candidates = raw.filter(q => {
         const result = validateQuestion(q, category, target, decadeRange);
         const ok = Number.isInteger(q?.year) && typeof q?.explanation === "string" && q.explanation.trim().length > 0 && result.valid && result.question && auditCandidateQuestion(result.question, accepted, context).passed;
@@ -132,8 +131,7 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
       try {
         reviewed = await services.review(options, candidates);
       } catch (error) {
-        lastFailure = error instanceof Error ? error : new Error("Factual review unavailable");
-        continue; // Never serve candidates whose factual review could not finish.
+        throw error instanceof Error ? error : new Error("Factual review unavailable");
       }
       const approved = new Map(reviewed.map(q => [questionIdentity(q), q]));
       let filled = 0;
@@ -149,7 +147,6 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
     }
   }
   const audit = auditDeck(accepted, context, count);
-  if (!audit.passed && lastFailure) throw lastFailure;
   if (!audit.passed) throw new Error(`Could not assemble ${count} fresh questions matching your selection after quality checks. Please retry or choose a different topic.`);
   return { sessionId: `session-${crypto.randomUUID()}`, questions: shuffleArray(audit.validQuestions.map(randomizeQuestionOptions)), sport, difficulty, mode };
 }

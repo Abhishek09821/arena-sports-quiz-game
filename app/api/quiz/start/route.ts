@@ -1,3 +1,4 @@
+import { quizErrorResponse } from "@/lib/services/quiz_error";
 import { NextResponse } from "next/server";
 import { generateForRequest } from "@/lib/services/personalized_request";
 
@@ -23,13 +24,6 @@ export async function POST(req: Request) {
       ...deck,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to start quiz",
-        message: error instanceof Error ? error.message : "Internal error",
-      },
-      { status: 500 }
-    );
+    return quizErrorResponse(error);
   }
 }

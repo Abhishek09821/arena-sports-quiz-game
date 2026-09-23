@@ -1,303 +1,55 @@
 "use client";
 
-import { useTheme } from "@/components/ThemeProvider";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { audio } from "@/lib/audio";
-import { Sun, Moon, Gamepad2, Menu, X, User, LogOut, Shield, LogIn, Volume2, VolumeX } from "lucide-react";
-import { useState, useEffect } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { useAuth } from "@/components/AuthContext";
-
-const links = [
-  { href: "/friends", label: "Friends" },
-  { href: "/multiplayer", label: "1v1 Buzzer" },
-  { href: "/challenge", label: "Challenge" },
-  { href: "/idol", label: "Know Your Idol" },
-];
+import { Fragment, useEffect, useRef, useState } from "react";
+import { ChevronDown, Menu, X, Sun, Moon, LogOut, Trophy } from "lucide-react";
+import { useTheme } from "./ThemeProvider";
+import { useAuth } from "./AuthContext";
+import { GAME_MODES, FAQS } from "@/data/site";
 
 export default function ArenaHeader() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
-  const [scrolled, setScrolled] = useState(false);
+  const { user, isAdmin, openAuthModal, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [soundOn, setSoundOn] = useState(true);
-  const { user, profile, isAdmin, signOut, isLoading, openAuthModal, requireAuth } = useAuth();
+  const [dropdown, setDropdown] = useState<"modes" | "faqs" | null>(null);
+  const header = useRef<HTMLElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
 
+  useEffect(() => { setMobileOpen(false); setDropdown(null); }, [pathname]);
   useEffect(() => {
-    setSoundOn(audio.sfxEnabled);
-  }, []);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileOpen(false); };
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobileOpen(false); setDropdown(null); menuButton.current?.focus(); }
+    };
+    const outside = (event: PointerEvent) => {
+      if (!header.current?.contains(event.target as Node)) { setDropdown(null); setMobileOpen(false); }
+    };
     document.addEventListener("keydown", close);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", close); document.body.style.overflow = overflow; };
-  }, [mobileOpen]);
+    document.addEventListener("pointerdown", outside);
+    return () => { document.removeEventListener("keydown", close); document.removeEventListener("pointerdown", outside); };
+  }, []);
 
-  // Close mobile menu on route change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
-
-  return (
-    <>
-      <header
-        className="arena-header"
-        data-scrolled={scrolled ? "true" : undefined}
-      >
-        <div className="arena-container flex items-center justify-between py-4">
-          <Link
-            href="/"
-            className="flex items-center gap-2.5 group"
-            onClick={() => audio.navigate()}
-          >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-arena-accent/15 to-arena-accent2/15 border border-arena-accent/15 grid place-items-center group-hover:border-arena-accent/35 group-hover:shadow-[0_0_20px_rgba(0,212,255,0.1)] transition-all duration-300">
-              <Gamepad2 size={16} className="text-arena-accent" />
-            </div>
-            <span className="font-display font-bold text-lg tracking-tight">
-              ARENA<span className="text-arena-accent">.</span>
-            </span>
-          </Link>
-
-          {/* Desktop nav */}
-          <nav className="hidden xl:flex items-center gap-1">
-            {links.map((link) => {
-              const active = pathname === link.href;
-              return (
-                <Link
-                  key={link.href}
-                  aria-current={active ? "page" : undefined}
-                  href={link.href}
-                  className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-250 relative ${
-                    active
-                      ? "text-arena-text arena-nav-active"
-                      : "text-arena-muted hover:text-arena-text"
-                  }`}
-                  onClick={(e) => {
-                    audio.navigate();
-                    if (!user) {
-                      e.preventDefault();
-                      requireAuth(link.href);
-                    }
-                  }}
-                >
-                  {active && <motion.span layoutId="nav-highlight" className="absolute inset-0 rounded-xl bg-arena-accent/10 border border-arena-accent/20" transition={{type:"spring", stiffness:350, damping:30}} />}
-                  <span className="relative">{link.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* User Auth controls */}
-          <div className="hidden xl:flex items-center gap-2">
-            {/* Sound Toggle Button */}
-            <button
-              type="button"
-              onClick={() => {
-                const next = audio.toggle();
-                setSoundOn(next);
-              }}
-              className="w-8 h-8 rounded-lg border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.08] text-arena-muted hover:text-arena-text transition-colors cursor-pointer"
-              title={soundOn ? "Mute Sound FX" : "Enable Sound FX"}
-              aria-label="Toggle Sound"
-            >
-              {soundOn ? <Volume2 size={15} className="text-arena-accent" /> : <VolumeX size={15} className="text-arena-muted" />}
-            </button>
-
-            {!isLoading && (
-              <>
-                {isAdmin && (
-                  <Link
-                    href="/admin"
-                    className="arena-btn arena-btn-ghost text-xs border border-arena-accent/30 text-arena-accent hover:bg-arena-accent/10 px-3 py-1.5"
-                    onClick={() => audio.click()}
-                  >
-                    <Shield size={13} />
-                    Admin
-                  </Link>
-                )}
-
-                {user ? (
-                  <div className="flex items-center gap-2 pl-2 border-l border-arena-line">
-                    <div className="flex items-center gap-1.5 text-xs text-arena-text font-medium px-2.5 py-1.5 rounded-lg bg-white/[.04] border border-arena-line">
-                      <User size={13} className="text-arena-accent" />
-                      <span className="max-w-[120px] truncate">
-                        {profile?.display_name || user.email?.split("@")[0]}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        audio.click();
-                        signOut();
-                      }}
-                      className="w-8 h-8 rounded-lg border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.08] hover:text-arena-bad transition-colors text-arena-muted"
-                      title="Sign Out"
-                    >
-                      <LogOut size={13} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      className="arena-btn arena-btn-ghost text-xs px-3 py-1.5 cursor-pointer"
-                      onClick={() => {
-                        audio.click();
-                        openAuthModal("signin");
-                      }}
-                    >
-                      <LogIn size={13} />
-                      Sign In
-                    </button>
-                    <button
-                      type="button"
-                      className="arena-btn arena-btn-primary text-xs px-3.5 py-1.5 shadow-[0_0_15px_rgba(0,212,255,0.2)] cursor-pointer"
-                      onClick={() => {
-                        audio.click();
-                        openAuthModal("signup");
-                      }}
-                    >
-                      Sign Up
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
+  const toggle = (name: "modes" | "faqs") => setDropdown(value => value === name ? null : name);
+  return <header className="site-header" ref={header}>
+    <div className="site-nav">
+      <Link href="/" className="site-brand" aria-label="Arena home"><Trophy size={20} strokeWidth={1.7} />ARENA<span>.</span></Link>
+      <nav id="site-navigation" className={`site-links ${mobileOpen ? "is-open" : ""}`} aria-label="Main navigation">
+        <Link href="/friends" aria-current={pathname === "/friends" ? "page" : undefined}>Friends</Link>
+        {(["modes", "faqs"] as const).map((name, index) => <Fragment key={name}>{index === 1 && <Link className="methodology-link" href="/methodology">Methodology</Link>}<div className="nav-group" onMouseEnter={() => { if (window.matchMedia("(min-width: 801px) and (hover: hover)").matches) setDropdown(name); }} onMouseLeave={() => { if (window.matchMedia("(min-width: 801px) and (hover: hover)").matches) setDropdown(null); }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropdown(null); }}>
+          <button className="nav-trigger" aria-expanded={dropdown === name} aria-controls={`nav-${name}`} onClick={() => toggle(name)}>{name === "modes" ? "Modes" : "FAQs"}<ChevronDown size={13} /></button>
+          <div id={`nav-${name}`} className={`nav-popover ${name === "faqs" ? "nav-faqs" : ""}`} hidden={dropdown !== name}>
+            <p className="nav-caption">{name === "modes" ? "Find your next game" : "A little help"}</p>
+            {name === "modes" ? GAME_MODES.map(mode => <Link key={mode.href} href={mode.href} onClick={() => {setDropdown(null);setMobileOpen(false);}}><strong>{mode.title}</strong><span>{mode.description}</span></Link>) : <>{FAQS.map(faq => <details key={faq.question}><summary>{faq.question}</summary><p>{faq.answer}</p></details>)}<a className="nav-contact" href="mailto:abhishek.tiwarii9821@gmail.com">Still have a question? Email us →</a></>}
           </div>
-
-          <button type="button" onClick={toggleTheme} className="arena-theme-toggle" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-
-          {/* Mobile hamburger */}
-          <button
-            className="xl:hidden w-9 h-9 rounded-xl border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.06] transition-colors"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label="Toggle menu"
-            aria-expanded={mobileOpen}
-          >
-            {mobileOpen ? <X size={16} /> : <Menu size={16} />}
-          </button>
-        </div>
-      </header>
-
-      {/* Mobile slide-in drawer */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <>
-            <motion.div
-              className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm xl:hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setMobileOpen(false)}
-            />
-            <motion.nav
-              className="fixed top-0 right-0 bottom-0 w-[270px] z-30 xl:hidden bg-arena-panel/95 backdrop-blur-xl border-l border-arena-line p-6 pt-20 flex flex-col justify-between"
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            >
-              <div className="flex flex-col gap-2">
-                {links.map((link, i) => {
-                  const active = pathname === link.href;
-                  return (
-                    <motion.div
-                      key={link.href}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.05 * i + 0.1 }}
-                    >
-                      <Link
-                        href={link.href}
-                        className={`block px-4 py-3 rounded-xl text-base font-semibold transition-all ${
-                          active
-                            ? "text-arena-text bg-white/[.06] border border-arena-accent/20"
-                            : "text-arena-muted hover:text-arena-text hover:bg-white/[.03] border border-transparent"
-                        }`}
-                        onClick={(e) => {
-                          audio.navigate();
-                          setMobileOpen(false);
-                          if (!user) {
-                            e.preventDefault();
-                            requireAuth(link.href);
-                          }
-                        }}
-                      >
-                        {link.label}
-                      </Link>
-                    </motion.div>
-                  );
-                })}
-
-                {isAdmin && (
-                  <Link
-                    href="/admin"
-                    className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-arena-accent bg-arena-accent/10 border border-arena-accent/20"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    <Shield size={16} /> Admin Dashboard
-                  </Link>
-                )}
-              </div>
-
-              {/* Mobile auth footer */}
-              <div className="pt-6 border-t border-arena-line">
-                {user ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm text-arena-text">
-                      <User size={15} className="text-arena-accent" />
-                      <span className="truncate">{profile?.display_name || user.email}</span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        signOut();
-                        setMobileOpen(false);
-                      }}
-                      className="arena-btn arena-btn-ghost w-full justify-center text-xs text-arena-bad"
-                    >
-                      <LogOut size={13} /> Sign Out
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      className="arena-btn arena-btn-ghost text-xs justify-center cursor-pointer"
-                      onClick={() => {
-                        setMobileOpen(false);
-                        openAuthModal("signin");
-                      }}
-                    >
-                      Sign In
-                    </button>
-                    <button
-                      type="button"
-                      className="arena-btn arena-btn-primary text-xs justify-center cursor-pointer"
-                      onClick={() => {
-                        setMobileOpen(false);
-                        openAuthModal("signup");
-                      }}
-                    >
-                      Sign Up
-                    </button>
-                  </div>
-                )}
-              </div>
-            </motion.nav>
-          </>
-        )}
-      </AnimatePresence>
-    </>
-  );
+        </div></Fragment>)}
+        {isAdmin && <Link href="/admin">Admin</Link>}
+      </nav>
+      <div className="site-actions">
+        <button className="nav-icon" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+        {user ? <button className="nav-icon" onClick={() => void signOut()} aria-label="Sign out"><LogOut size={18} /></button> : <button className="nav-signin" onClick={() => openAuthModal("signin")}>Sign in</button>}
+        <button ref={menuButton} className="nav-icon mobile-menu-toggle" onClick={() => setMobileOpen(value => !value)} aria-expanded={mobileOpen} aria-controls="site-navigation" aria-label={mobileOpen ? "Close menu" : "Open menu"}>{mobileOpen ? <X size={21} /> : <Menu size={21} />}</button>
+      </div>
+    </div>
+  </header>;
 }

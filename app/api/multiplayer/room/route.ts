@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     const auth = await getOptionalUser(req);
     if (!auth.userId) return NextResponse.json({error:"Sign in to create a room."},{status:401});
     const body = await req.json();
-    const { code, hostName = "Host", sport = "All Sports", difficulty = "Mixed", count = 10, questions = [], playerToken } = body;
+    const { code, hostName = "Host", sport = "All Sports", difficulty = "Mixed", count = 10, decade = "all", tournament, questions = [], playerToken } = body;
 
     if (!code) {
       return NextResponse.json({ error: "Room code is required" }, { status: 400 });
@@ -35,6 +35,8 @@ export async function POST(req: Request) {
             sport,
             difficulty,
             count,
+            decade,
+            tournament,
             questions,
           },
           current_round: 0,
@@ -113,6 +115,7 @@ export async function GET(req: Request) {
       success: true,
       room,
       questions: room.settings?.questions || [],
+      settings: room.settings,
       sport: room.settings?.sport || "All Sports",
       difficulty: room.settings?.difficulty || "Mixed",
       hostName: room.settings?.hostName || "Host",
