@@ -1,5 +1,5 @@
-import { type Sport, type Difficulty, DECADE_OPTIONS, SPORT_LIST, DIFFICULTY_LIST, IDOL_BY_SPORT, TOURNAMENTS_BY_SPORT, type DecadeOption } from "@/data/questions";
-import { generateAIQuestions, reviewAIQuestions } from "./ai_question_generator";
+import { type Sport, type Difficulty, DECADE_OPTIONS, SPORT_LIST, DIFFICULTY_LIST, MIXED_SPORTS, TOURNAMENTS_BY_SPORT, type DecadeOption } from "@/data/questions";
+import { generateAIQuestions, reviewAIQuestions, questionIdentity } from "./ai_question_generator";
 import {
   validateQuestion,
   type ValidatedQuestion,
@@ -24,6 +24,7 @@ export interface CreateQuizRequest {
   decade?: DecadeOption;
   idol?: string;
   candidates?: RawGeneratedQuestion[];
+  difficultyOffset?: number;
 }
 
 export interface QuizDeckResponse {
@@ -81,10 +82,10 @@ export function randomizeQuestionOptions(q: ValidatedQuestion): ValidatedQuestio
 /** Selection checks, independent review, bounded replacement and final deck audit. */
 export async function generatePersonalizedQuiz(params: CreateQuizRequest, services = { generate: generateAIQuestions, review: reviewAIQuestions }): Promise<QuizDeckResponse> {
   const { sport, difficulty, count, mode = "classic", category, decade, idol } = params;
-  if (sport !== "All Sports" && !SPORT_LIST.includes(sport)) throw new Error("Choose a supported sport.");
+  if (sport !== "All Sports" && !SPORT_LIST.some(s => s === sport)) throw new Error("Choose a supported sport.");
   if (difficulty !== "Mixed" && !DIFFICULTY_LIST.includes(difficulty)) throw new Error("Choose a supported difficulty.");
   if (!Number.isInteger(count) || count < 1 || count > 30) throw new Error("Choose between 1 and 30 questions.");
-  if (mode === "idol" && (sport === "All Sports" || !IDOL_BY_SPORT[sport]?.some(p => p.name === idol))) {
+  if (mode === "idol" && (sport === "All Sports" || sport === "General Knowledge" || typeof idol !== "string" || !/^[\p{L}\p{M} .’'\-]{2,80}$/u.test(idol))) {
     throw new Error("Choose an idol from the selected sport.");
   }
   if (category && (sport === "All Sports" || !TOURNAMENTS_BY_SPORT[sport].includes(category))) throw new Error("Choose a tournament from the selected sport.");
@@ -92,46 +93,54 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
   if (decade && !decadeOption) throw new Error("Choose a valid decade.");
   const decadeRange: [number, number] | undefined = decade && decade !== "all" && decadeOption ? [...decadeOption.range] : undefined;
   const excludeStems = (params.excludeStems || []).filter((s): s is string => typeof s === "string");
+  if (sport === "All Sports" && !params.candidates) {
+    const sports = shuffleArray([...MIXED_SPORTS]);
+    const decks = await Promise.all(sports.map(async (selected, index) => {
+      const amount = Math.floor(count / sports.length) + (index < count % sports.length ? 1 : 0);
+      if (!amount) return [];
+      const deck = await generatePersonalizedQuiz({ ...params, sport: selected, count: amount, difficultyOffset: index * Math.floor(count / sports.length) + Math.min(index, count % sports.length) }, services);
+      return deck.questions;
+    }));
+    const combined = auditDeck(decks.flat(), {sport, difficulty, excludeStems}, count);
+    if (!combined.passed) throw new Error("The mixed round contained overlapping questions. Please retry for a fresh set.");
+    return { sessionId: `session-${crypto.randomUUID()}`, questions: shuffleArray(combined.validQuestions), sport, difficulty, mode };
+  }
   const context: DeckAuditContext = { sport, difficulty, category, idol, excludeStems };
   const accepted: ValidatedQuestion[] = [];
   const rejected: string[] = [];
-  const deadline = Date.now() + 90000;
+  let lastFailure: Error | undefined;
+  const deadline = Date.now() + 150000;
   const normalizedMode = mode === "buzzer" ? "multiplayer" : mode;
-  // Fixed difficulty slots stop a Mixed deck from silently becoming ten easy questions.
-  const slots: Difficulty[] = Array.from({ length: count }, (_, i) => difficulty === "Mixed" ? (["Medium", "Hard", "Easy"] as const)[i % 3] : difficulty);
-  for (let attempt = 0; attempt < 5 && accepted.length < count; attempt++) {
+  // Fixed quotas include all four difficulties; remainders differ by at most one.
+  const slots: Difficulty[] = Array.from({ length: count }, (_, i) => difficulty === "Mixed" ? DIFFICULTY_LIST[(i + (params.difficultyOffset || 0)) % DIFFICULTY_LIST.length] : difficulty);
+  for (let attempt = 0; attempt < 5 && accepted.length < count && Date.now() < deadline; attempt++) {
     const remaining = [...slots];
     for (const q of accepted) remaining.splice(remaining.indexOf(q.difficulty), 1);
     for (const target of [...new Set(remaining)]) {
       const needed = remaining.filter(d => d === target).length;
-      const options = { deadline, sport, difficulty: target, count: needed, category, decade, idol, mode: normalizedMode, excludeStems: [...excludeStems, ...accepted.map(q => q.question), ...rejected] };
-      const raw = attempt === 0 && params.candidates ? params.candidates.filter(q => q?.difficulty === target) : await services.generate(options);
+      const options = { deadline, sport, difficulty: target, count: Math.min(30, needed + 2), category, decade, idol, mode: normalizedMode, excludeStems: [...excludeStems, ...accepted.map(q => q.question), ...rejected] };
+      let raw: RawGeneratedQuestion[];
+      try { raw = attempt === 0 && params.candidates ? params.candidates.filter(q => q?.difficulty === target) : await services.generate(options); } catch (error) { lastFailure = error instanceof Error ? error : new Error("AI service unavailable"); continue; }
       const candidates = raw.filter(q => {
         const result = validateQuestion(q, category, target, decadeRange);
         const ok = Number.isInteger(q?.year) && typeof q?.explanation === "string" && q.explanation.trim().length > 0 && result.valid && result.question && auditCandidateQuestion(result.question, accepted, context).passed;
         if (!ok && typeof q?.question === "string") rejected.push(q.question);
         return ok;
       });
+      if (!candidates.length) continue;
       let reviewed: RawGeneratedQuestion[];
       try {
         reviewed = await services.review(options, candidates);
       } catch (error) {
-        // The candidates above have already passed deterministic schema,
-        // selection, answer-mapping, date, difficulty and duplicate checks.
-        // An optional second AI fact-check must not turn a valid generated
-        // quiz into a 500 when that reviewer is rate-limited or unavailable.
-        console.warn(
-          "[question review] External reviewer unavailable; using locally validated candidates:",
-          error instanceof Error ? error.message : String(error)
-        );
-        reviewed = candidates;
+        lastFailure = error instanceof Error ? error : new Error("Factual review unavailable");
+        continue; // Never serve candidates whose factual review could not finish.
       }
-      const approved = new Set(reviewed.map(q => JSON.stringify(q)));
+      const approved = new Map(reviewed.map(q => [questionIdentity(q), q]));
       let filled = 0;
       for (const candidate of candidates) {
-        if (!approved.has(JSON.stringify(candidate))) { rejected.push(candidate.question); continue; }
+        if (!approved.has(questionIdentity(candidate))) { rejected.push(candidate.question); continue; }
         if (filled >= needed) break;
-        const result = validateQuestion(candidate, category, target, decadeRange);
+        const result = validateQuestion(approved.get(questionIdentity(candidate)), category, target, decadeRange);
         if (result.question && auditCandidateQuestion(result.question, accepted, context).passed) {
           accepted.push(result.question);
           filled++;
@@ -140,6 +149,7 @@ export async function generatePersonalizedQuiz(params: CreateQuizRequest, servic
     }
   }
   const audit = auditDeck(accepted, context, count);
+  if (!audit.passed && lastFailure) throw lastFailure;
   if (!audit.passed) throw new Error(`Could not assemble ${count} fresh questions matching your selection after quality checks. Please retry or choose a different topic.`);
   return { sessionId: `session-${crypto.randomUUID()}`, questions: shuffleArray(audit.validQuestions.map(randomizeQuestionOptions)), sport, difficulty, mode };
 }

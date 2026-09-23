@@ -216,6 +216,11 @@ export default function MultiplayerPage() {
 
   // ── Determine network transport (Socket.IO vs Supabase Realtime) ──
   useEffect(() => {
+    const inviteCode = new URLSearchParams(window.location.search).get("code");
+    if (inviteCode && /^[a-z0-9]{4,8}$/i.test(inviteCode)) setCodeInput(inviteCode.toUpperCase());
+  }, []);
+
+  useEffect(() => {
     const isLocalhost =
       typeof window !== "undefined" &&
       (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
@@ -869,7 +874,7 @@ export default function MultiplayerPage() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+      if (res.ok && data.success && Array.isArray(data.questions) && data.questions.length === selectedCount) {
         qs = data.questions;
         recordQuestionsAsSeen(qs);
       } else {
@@ -894,7 +899,7 @@ export default function MultiplayerPage() {
 
     try {
       // 1. Always persist room via HTTP endpoint (works seamlessly on Vercel & Node)
-      await fetch("/api/multiplayer/room", {
+      const savedRoom = await fetch("/api/multiplayer/room", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         signal: AbortSignal.timeout(8000),
@@ -909,6 +914,8 @@ export default function MultiplayerPage() {
           playerToken: myIdRef.current,
         }),
       });
+
+      if (!savedRoom.ok) throw new Error("Could not save room. Please retry.");
 
       // 2. If Socket.io is connected, emit room creation
       if (socketRef.current?.connected) {
@@ -1230,6 +1237,11 @@ export default function MultiplayerPage() {
     [roomCode, isHost, getVoiceSignaler, addEvent]
   );
 
+  useEffect(() => {
+    if (!isHost || !token || !roomCode || (status !== "playing" && status !== "finished")) return;
+    void fetch("/api/multiplayer/room", {method:"PATCH", headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`}, body:JSON.stringify({code:roomCode,status:status === "playing" ? "live" : "finished"})}).then(r=>{if(!r.ok)console.warn("Room status was not synced");}).catch(()=>console.warn("Room status sync unavailable"));
+  }, [status, isHost, token, roomCode]);
+
   // Auto-initialize voice chat when both players are present
   useEffect(() => {
     const playerCount = Object.keys(players).length;
@@ -1516,7 +1528,7 @@ export default function MultiplayerPage() {
   // ── Idle View: Create or Join ────────────────────────────
   if (status === "idle") {
     return (
-      <main className="arena-container pb-16">
+      <main className="arena-container arena-mode-page pb-16">
         <div className="pt-10 pb-6">
           <Link
             href="/"
@@ -1541,7 +1553,7 @@ export default function MultiplayerPage() {
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-4xl">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
           {/* Create Room Card */}
           <motion.div
             className="lg:col-span-7 arena-card arena-card-shine space-y-4"
@@ -1773,7 +1785,7 @@ export default function MultiplayerPage() {
   // ── Lobby View ───────────────────────────────────────────
   if (status === "lobby") {
     return (
-      <main className="arena-container pb-16">
+      <main className="arena-container arena-mode-page pb-16">
         <div className="pt-10 pb-6">
           <button
             type="button"
@@ -2046,7 +2058,7 @@ export default function MultiplayerPage() {
     const isRevealed = phase === "revealed";
 
     return (
-      <main className="arena-container pb-16">
+      <main className="arena-container arena-mode-page pb-16">
         {/* Score & Synchronized Status Bar */}
         <div className="flex justify-between items-center py-4 flex-wrap gap-3">
           <div className="flex items-center gap-2.5">
@@ -2332,7 +2344,7 @@ export default function MultiplayerPage() {
     const tied = myScore === opponentScore;
 
     return (
-      <main className="arena-container pb-16">
+      <main className="arena-container arena-mode-page pb-16">
         <div className="min-h-[60vh] flex items-center justify-center">
           <motion.div
             className="text-center max-w-lg"

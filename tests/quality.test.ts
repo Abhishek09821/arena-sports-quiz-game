@@ -7,17 +7,17 @@ import { getSeenStems, recordQuestionsAsSeen, isQuestionSeen } from "../lib/seen
 import { buildGame, resetSessionHistory } from "../lib/quiz";
 
 const sample: RawGeneratedQuestion = {
-  sport: "Formula 1", difficulty: "Medium", year: 2008,
-  question: "Which team did Lewis Hamilton drive for in his 2008 title season?",
-  options: ["McLaren", "Ferrari", "Renault", "Williams"], answer: "McLaren",
-  category: "Know Your Idol: Lewis Hamilton", explanation: "Lewis Hamilton won the 2008 championship driving for McLaren.",
+  sport: "Football", difficulty: "Medium", year: 2008,
+  question: "Which team did Lionel Messi drive for in his 2008 title season?",
+  options: ["Barcelona", "Real Madrid", "Valencia", "Sevilla"], answer: "Barcelona",
+  category: "Know Your Idol: Lionel Messi", explanation: "Lionel Messi won the 2008 championship driving for Barcelona.",
 };
-const context = { sport: "Formula 1" as const, difficulty: "Medium" as const, idol: "Lewis Hamilton" };
+const context = { sport: "Football" as const, difficulty: "Medium" as const, idol: "Lionel Messi" };
 
 test("rejects validly formatted questions from another sport or athlete", () => {
   const q = validateQuestion(sample).question!;
   assert.equal(auditCandidateQuestion({ ...q, sport: "Cricket" }, [], context).passed, false);
-  assert.equal(auditCandidateQuestion({ ...q, question: q.question.replace("Lewis Hamilton", "Sebastian Vettel") }, [], context).passed, false);
+  assert.equal(auditCandidateQuestion({ ...q, question: q.question.replace("Lionel Messi", "Cristiano Ronaldo") }, [], context).passed, false);
 });
 test("rejects historical repeats even with different distractors", () => {
   const q = validateQuestion(sample).question!;
@@ -26,7 +26,7 @@ test("rejects historical repeats even with different distractors", () => {
 });
 test("different facts may legitimately share a correct answer", () => {
   const q = validateQuestion(sample).question!;
-  const other = { ...q, question: "Which team employed Lewis Hamilton when he made his F1 debut in 2007?" };
+  const other = { ...q, question: "Which team employed Lionel Messi when he made his league debut in 2007?" };
   assert.equal(auditCandidateQuestion(other, [q], context).passed, true);
 });
 test("malformed provider fields return validation errors instead of crashing", () => {
@@ -40,20 +40,17 @@ test("rejects wrong tournament without relabelling it", () => {
 test("automatically replaces reviewer-rejected and off-idol candidates", async () => {
   let calls = 0;
   const deck = await generatePersonalizedQuiz({ ...context, mode: "idol", count: 1 }, {
-    generate: async () => { calls++; return [calls === 1 ? { ...sample, question: "Which team did Sebastian Vettel drive for in 2008?" } : sample]; },
+    generate: async () => { calls++; return [calls === 1 ? { ...sample, question: "Which team did Cristiano Ronaldo drive for in 2008?" } : sample]; },
     review: async (_options, candidates) => calls === 2 ? [] : candidates,
   });
   assert.equal(calls, 3);
   assert.equal(deck.questions.length, 1);
-  assert.equal(deck.questions[0].options[deck.questions[0].answer], "McLaren");
+  assert.equal(deck.questions[0].options[deck.questions[0].answer], "Barcelona");
 });
-test("reviewer outage does not discard locally validated AI questions", async () => {
-  const deck = await generatePersonalizedQuiz({ ...context, mode: "idol", count: 1 }, {
-    generate: async () => [sample],
-    review: async () => { throw new Error("review provider unavailable"); },
-  });
-  assert.equal(deck.questions.length, 1);
-  assert.equal(deck.questions[0].question, sample.question);
+test("reviewer outage fails closed instead of bypassing factual review", async () => {
+  await assert.rejects(generatePersonalizedQuiz({ ...context, mode: "idol", count: 1 }, {
+    generate: async () => [sample], review: async () => { throw new Error("offline"); },
+  }), /offline/);
 });
 test("exhausted verification fails closed rather than serving a short or easy deck", async () => {
   await assert.rejects(generatePersonalizedQuiz({ ...context, mode: "idol", count: 10 }, {
@@ -61,8 +58,8 @@ test("exhausted verification fails closed rather than serving a short or easy de
   }), /Could not assemble 10 fresh/);
 });
 test("Mixed deck enforces a real mix of difficulty labels", async () => {
-  const deck = await generatePersonalizedQuiz({ sport: "Formula 1", difficulty: "Mixed", count: 3 }, {
-    generate: async options => [{ ...sample, difficulty: options.difficulty, question: `At the ${options.difficulty === "Easy" ? 2008 : options.difficulty === "Medium" ? 2009 : 2010} season opener, which team did Lewis Hamilton represent?` }],
+  const deck = await generatePersonalizedQuiz({ sport: "Football", difficulty: "Mixed", count: 3 }, {
+    generate: async options => [{ ...sample, difficulty: options.difficulty, question: `At the ${options.difficulty === "Easy" ? 2008 : options.difficulty === "Medium" ? 2009 : 2010} season opener, which team did Lionel Messi represent?` }],
     review: async (_o, qs) => qs,
   });
   assert.equal(new Set(deck.questions.map(q => q.difficulty)).size, 3);
@@ -96,7 +93,7 @@ test("offline fallback cannot relax difficulty, category, or exclusions", () => 
 });
 
 test("never fills a selected non-cricket sport with generic Cricket questions", async () => {
-  for (const sport of ["Football", "Basketball", "Formula 1", "WWE/WWF", "UFC"] as const) {
+  for (const sport of ["Football", "Basketball", "WWE/WWF"] as const) {
     await assert.rejects(generatePersonalizedQuiz({ sport, difficulty: "Medium", count: 10 }, {
       generate: async () => [{ ...sample, sport: "Cricket" }], review: async (_o, qs) => qs,
     }), /Could not assemble 10 fresh/);
@@ -107,4 +104,35 @@ test("missing event dates cannot pass the generated-question gate", async () => 
   await assert.rejects(generatePersonalizedQuiz({ ...context, mode: "idol", count: 1 }, {
     generate: async () => [{ ...sample, year: undefined }], review: async (_o, qs) => qs,
   }), /Could not assemble 1 fresh/);
+});
+
+test("replenishes a provider's three-question response into an exact five-question deck", async () => {
+ let batch=0;
+ const deck=await generatePersonalizedQuiz({sport:"Football",difficulty:"Medium",count:5},{
+ generate:async()=>Array.from({length:3},()=>({...sample,question:`During the ${1990+batch++} season, which club won the league championship?`})),review:async(_o,qs)=>qs});
+ assert.equal(deck.questions.length,5);
+ assert.equal(new Set(deck.questions.map(q=>q.question)).size,5);
+});
+test("mixed sports and all four difficulties have balanced quotas",async()=>{
+ let serial=0;
+ const deck=await generatePersonalizedQuiz({sport:"All Sports",difficulty:"Mixed",count:10},{
+ generate:async o=>Array.from({length:o.count},()=>({...sample,sport:o.sport,difficulty:o.difficulty,question:`Which competitor secured championship number ${++serial} in this ${o.sport} competition?`})),review:async(_o,qs)=>qs});
+ for(const field of ["sport","difficulty"] as const){const counts=Object.values(deck.questions.reduce<Record<string,number>>((a,q)=>{a[q[field]]=(a[q[field]]||0)+1;return a;},{}));assert.equal(counts.length,4);assert.ok(Math.max(...counts)-Math.min(...counts)<=1);}
+ assert.ok(deck.questions.every(q=>q.sport!=="General Knowledge"&&q.sport!=="UFC"&&q.sport!=="Formula 1"));
+});
+test("custom idols are accepted but unrelated candidates cannot pass",async()=>{
+ const deck=await generatePersonalizedQuiz({sport:"Football",difficulty:"Medium",count:1,mode:"idol",idol:"Erling Haaland"},{generate:async()=>[{...sample,question:"Which club signed Erling Haaland during the 2022 summer transfer window?"}],review:async(_o,qs)=>qs});
+ assert.match(deck.questions[0].question,/Erling Haaland/);
+});
+test("a selected decade rejects out-of-range dates",async()=>{
+ await assert.rejects(generatePersonalizedQuiz({sport:"Football",difficulty:"Medium",count:1,decade:"1990-2000"},{generate:async()=>[sample],review:async(_o,qs)=>qs}),/Could not assemble/);
+});
+test("removed sports cannot be requested",async()=>{
+ for(const sport of ["Formula 1","UFC"] as const)await assert.rejects(generatePersonalizedQuiz({sport,difficulty:"Easy",count:5}),/supported sport/);
+});
+
+test("review evidence survives validation and option randomization",async()=>{
+ const verification={sources:[{title:"Official archive",url:"https://example.com/archive"}]};
+ const deck=await generatePersonalizedQuiz({sport:"Football",difficulty:"Medium",count:1},{generate:async()=>[sample],review:async(_o,qs)=>qs.map(q=>({...q,verification}))});
+ assert.deepEqual(deck.questions[0].verification?.sources,verification.sources);
 });

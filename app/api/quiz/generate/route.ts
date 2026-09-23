@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { generateForRequest } from "@/lib/services/personalized_request";
 import { type Sport, type Difficulty } from "@/data/questions";
 
+export const maxDuration = 180;
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));

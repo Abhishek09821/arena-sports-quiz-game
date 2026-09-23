@@ -10,6 +10,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthContext";
 
 const links = [
+  { href: "/friends", label: "Friends" },
   { href: "/multiplayer", label: "1v1 Buzzer" },
   { href: "/challenge", label: "Challenge" },
   { href: "/idol", label: "Know Your Idol" },
@@ -30,7 +31,16 @@ export default function ArenaHeader() {
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    useEffect(() => {
+    if (!mobileOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileOpen(false); };
+    document.addEventListener("keydown", close);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", close); document.body.style.overflow = overflow; };
+  }, [mobileOpen]);
+
+  return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   // Close mobile menu on route change
@@ -59,7 +69,7 @@ export default function ArenaHeader() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden sm:flex items-center gap-1">
+          <nav className="hidden xl:flex items-center gap-1">
             {links.map((link) => {
               const active = pathname === link.href;
               return (
@@ -80,14 +90,15 @@ export default function ArenaHeader() {
                     }
                   }}
                 >
-                  {link.label}
+                  {active && <motion.span layoutId="nav-highlight" className="absolute inset-0 rounded-xl bg-arena-accent/10 border border-arena-accent/20" transition={{type:"spring", stiffness:350, damping:30}} />}
+                  <span className="relative">{link.label}</span>
                 </Link>
               );
             })}
           </nav>
 
           {/* User Auth controls */}
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden xl:flex items-center gap-2">
             {/* Sound Toggle Button */}
             <button
               type="button"
@@ -169,7 +180,7 @@ export default function ArenaHeader() {
 
           {/* Mobile hamburger */}
           <button
-            className="sm:hidden w-9 h-9 rounded-xl border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.06] transition-colors"
+            className="xl:hidden w-9 h-9 rounded-xl border border-arena-line bg-white/[.03] grid place-items-center hover:bg-white/[.06] transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
             aria-expanded={mobileOpen}
@@ -184,14 +195,14 @@ export default function ArenaHeader() {
         {mobileOpen && (
           <>
             <motion.div
-              className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm sm:hidden"
+              className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm xl:hidden"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
             />
             <motion.nav
-              className="fixed top-0 right-0 bottom-0 w-[270px] z-30 sm:hidden bg-arena-panel/95 backdrop-blur-xl border-l border-arena-line p-6 pt-20 flex flex-col justify-between"
+              className="fixed top-0 right-0 bottom-0 w-[270px] z-30 xl:hidden bg-arena-panel/95 backdrop-blur-xl border-l border-arena-line p-6 pt-20 flex flex-col justify-between"
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}

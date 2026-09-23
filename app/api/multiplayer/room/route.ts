@@ -1,8 +1,11 @@
+import { getOptionalUser } from "@/lib/auth/server_auth";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
 
 export async function POST(req: Request) {
   try {
+    const auth = await getOptionalUser(req);
+    if (!auth.userId) return NextResponse.json({error:"Sign in to create a room."},{status:401});
     const body = await req.json();
     const { code, hostName = "Host", sport = "All Sports", difficulty = "Mixed", count = 10, questions = [], playerToken } = body;
 
@@ -12,12 +15,7 @@ export async function POST(req: Request) {
 
     const adminClient = getSupabaseAdminClient();
     if (!adminClient) {
-      // If Supabase is not configured, gracefully return mock success
-      return NextResponse.json({
-        success: true,
-        mock: true,
-        code: code.toUpperCase(),
-      });
+      return NextResponse.json({error:"Database unavailable. Room was not created."},{status:503});
     }
 
     const roomCode = code.toUpperCase();
@@ -25,9 +23,10 @@ export async function POST(req: Request) {
     // 1. Create or upsert room record in game_rooms
     const { data: room, error: roomError } = await adminClient
       .from("game_rooms")
-      .upsert(
+      .insert(
         {
           code: roomCode,
+          created_by: auth.userId,
           mode: "buzzer",
           status: "waiting",
           settings: {
@@ -40,8 +39,7 @@ export async function POST(req: Request) {
           },
           current_round: 0,
           updated_at: new Date().toISOString(),
-        },
-        { onConflict: "code" }
+        }
       )
       .select("id, code, status, settings")
       .single();
@@ -127,4 +125,15 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   }
+}
+
+export async function PATCH(req: Request) {
+  const auth = await getOptionalUser(req);
+  if (!auth.userId) return NextResponse.json({error:"Sign in first"},{status:401});
+  const db = getSupabaseAdminClient();
+  if (!db) return NextResponse.json({error:"Database unavailable"},{status:503});
+  const {code,status} = await req.json();
+  if (!["live","finished"].includes(status)) return NextResponse.json({error:"Invalid status"},{status:400});
+  const {data,error} = await db.from("game_rooms").update({status,updated_at:new Date().toISOString()}).eq("code",code).eq("created_by",auth.userId).select("id").maybeSingle();
+  return NextResponse.json(error || !data ? {error:"Room update failed"}:{success:true},{status:error||!data?403:200});
 }

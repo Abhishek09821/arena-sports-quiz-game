@@ -195,3 +195,32 @@ live provider accuracy must also be sampled before release.
 
 The interface supports per-sport accents and a persistent light/dark preference.
 Use `npm test`, `npx tsc --noEmit`, and `npm run build` for validation.
+
+## September 2026 reliability and social update
+
+Apply migrations 001–004 in order. Migration 004 creates friendships, invitations,
+unique challenge participants, and room ownership. Friends and invitations use
+Supabase Realtime with a 15-second polling fallback. Admin reads exact database
+counts and refreshes every 5 seconds; dates render in the viewer's timezone.
+Challenge activity counts unique accounts that started a round, not page views.
+
+Question preparation requires an exact complete deck, matching sport, tournament,
+era and difficulty. Mixed sports excludes General Knowledge, UFC and Formula 1.
+All four difficulty levels participate in Mixed; indivisible round sizes differ
+by at most one question per level/sport. Account history reservations fail closed
+on database errors or concurrent collisions. Small wording changes are checked
+locally, with additional repeat-fact review by AI. This is not a mathematical
+guarantee against every semantic paraphrase or factual error.
+
+Factual review now requires Gemini Google Search grounding; a memory-only
+fallback was observed approving false premises in live tests and was removed.
+Set `VERIFICATION_AI_API_KEY` (or use the existing Gemini keys) with available
+Gemini and grounding quota. `VERIFICATION_AI_MODEL` defaults to
+`gemini-2.5-flash`. A quota failure is surfaced rather than bypassing review.
+See Google's [grounding documentation](https://ai.google.dev/gemini-api/docs/generate-content/google-search).
+
+Validation: `npm test`, `npx tsc --noEmit`, `npx next build --webpack`.
+The Webpack build works in environments where Turbopack's worker port binding
+is restricted. Existing WebRTC/multiplayer ESLint warnings remain separate
+from this update. Browser visual QA and a successful grounded generation run
+are still required before production rollout when provider quota is available.

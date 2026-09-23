@@ -1,6 +1,7 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import FriendNotifications from "@/components/FriendNotifications";
 import ArenaHeader from "@/components/ArenaHeader";
 import AuthModal from "@/components/AuthModal";
 import { AuthProvider } from "@/components/AuthContext";
@@ -8,11 +9,11 @@ import { AuthProvider } from "@/components/AuthContext";
 export const metadata: Metadata = {
   title: "Arena — Premium Sports Quiz",
   description:
-    "Test your sports knowledge across 6 sports from 1975 to 2026. Fast gameplay, premium UI, and competitive modes.",
-  keywords: ["sports quiz", "trivia", "cricket", "football", "basketball", "tennis", "formula 1", "arena"],
+    "Test your sports knowledge across sports and general knowledge. Fast gameplay, premium UI, and competitive modes.",
+  keywords: ["sports quiz", "trivia", "cricket", "football", "basketball", "tennis", "arena"],
   openGraph: {
     title: "Arena — Premium Sports Quiz",
-    description: "Test your sports knowledge. 6 sports. 1975–2026. Multiple game modes.",
+    description: "Test your sports knowledge. Sports and general knowledge. Multiple game modes.",
     type: "website",
   },
   icons: {
@@ -41,6 +42,7 @@ export default function RootLayout({
             {/* Header & Content */}
             <ArenaHeader />
             <AuthModal />
+            <FriendNotifications />
             {children}
           </div>
         </AuthProvider></ThemeProvider>

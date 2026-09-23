@@ -1204,3 +1204,23 @@ h1, h2, h3 { text-wrap: balance; }
 :focus-visible { outline: 3px solid var(--color-arena-accent); outline-offset: 4px; }
 @media (max-width: 760px) { .arena-header nav a { padding-inline: 8px; font-size: 10px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* Game surfaces scale to both phones and wide desktop displays. */
+.arena-mode-page { width: min(100% - 2rem, 1600px); min-height: calc(100dvh - 80px); }
+.arena-header { backdrop-filter: blur(22px); box-shadow: 0 8px 30px rgb(0 0 0 / .08); }
+.arena-header button { min-width: 44px; min-height: 44px; }
+select.arena-input option { color: #101828; background: #fff; }
+@media (max-width: 640px) {
+ .arena-container { width: 100%; padding-inline: 16px; }
+ .arena-card { min-width: 0; }
+ main { min-height: calc(100dvh - 76px); }
+ input, select, textarea { max-width: 100%; font-size: 16px !important; }
+ .arena-btn { min-height: 44px; white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+ *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.arena-header, .arena-header[data-scrolled="true"] { background: color-mix(in srgb, var(--color-arena-panel) 92%, transparent); backdrop-filter: blur(22px); border-bottom: 1px solid var(--color-arena-line); }
+.arena-header nav a { border-radius: 14px; text-transform: none; letter-spacing: normal; font-size: 14px; }
+.arena-header nav a:hover { background: color-mix(in srgb, var(--color-arena-accent) 8%, transparent); transform: translateY(-2px); }

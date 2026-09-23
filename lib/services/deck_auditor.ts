@@ -1,6 +1,6 @@
 import { canonicalizeStem } from "@/lib/seen_history";
 import { ValidatedQuestion, normalizeQuestionText } from "./question_validator";
-import { type Difficulty, type Sport } from "@/data/questions";
+import { MIXED_SPORTS, type Difficulty, type Sport } from "@/data/questions";
 
 export interface DeckAuditContext {
   sport: Sport | "All Sports";
@@ -29,6 +29,19 @@ function canonicalizeText(text: string): string {
   return canonicalizeStem(text);
 }
 
+/** Detect small rewordings without merging the same event in different years. */
+export function similarQuestion(a: string, b: string): boolean {
+  const left = canonicalizeText(a), right = canonicalizeText(b);
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+  const numbers = (text: string) => (text.match(/\d+/g) || []).sort().join(",");
+  if (numbers(a) !== numbers(b)) return false;
+  const tokens = (text: string) => new Set(normalizeQuestionText(text).replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 2 && !["which","what","who","the","was","did","for","and","with"].includes(w)));
+  const x = tokens(a), y = tokens(b);
+  const overlap = [...x].filter(w => y.has(w)).length;
+  return x.size >= 5 && y.size >= 5 && overlap / new Set([...x, ...y]).size >= .82;
+}
+
 /**
  * Strict Quality & Uniqueness Auditor for an individual candidate question within a deck.
  */
@@ -45,10 +58,8 @@ export function auditCandidateQuestion(
   }
 
   // 2. Intra-deck Question Stem Uniqueness
-  const candidateStem = canonicalizeText(q.question);
   for (const existing of currentDeck) {
-    const existingStem = canonicalizeText(existing.question);
-    if (candidateStem && existingStem && (candidateStem === existingStem || candidateStem.includes(existingStem) || existingStem.includes(candidateStem))) {
+    if (similarQuestion(q.question, existing.question)) {
       reasons.push(`Duplicate or near-identical question stem to already accepted question: "${existing.question}"`);
       break;
     }
@@ -58,14 +69,14 @@ export function auditCandidateQuestion(
   // 4. Cross-Game Historical Exclusions (Zero Repeat Guarantee across user sessions)
   if (context.excludeStems && context.excludeStems.length > 0) {
     for (const rawExcluded of context.excludeStems) {
-      const canonEx = canonicalizeText(rawExcluded);
-      if (canonEx && candidateStem && (candidateStem === canonEx || candidateStem.startsWith(canonEx) || canonEx.startsWith(candidateStem))) {
+      if (similarQuestion(q.question, rawExcluded)) {
         reasons.push(`Question matches a previously seen question from past sessions: "${rawExcluded.slice(0, 50)}"`);
         break;
       }
     }
   }
 
+  if (context.sport === "All Sports" && !MIXED_SPORTS.some(s => s === q.sport)) reasons.push("Mixed sports excludes general knowledge and removed sports.");
   if (context.sport !== "All Sports" && q.sport !== context.sport) reasons.push("Selected sport mismatch.");
   if (context.idol && !normalizeQuestionText(q.question).includes(normalizeQuestionText(context.idol))) {
     reasons.push("Question must explicitly concern the selected idol.");

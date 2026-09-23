@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { generateForRequest } from "@/lib/services/personalized_request";
 
+export const maxDuration = 180;
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();

@@ -204,9 +204,9 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
   if (!q) return null;
 
   return (
-    <div className="arena-container min-h-screen pb-16">
+    <div className="arena-container arena-mode-page min-h-screen pb-16">
       {/* Top Bar */}
-      <div className="flex justify-between items-center py-5">
+      <div className="flex flex-wrap gap-3 justify-between items-center py-5">
         <div>
           <motion.div
             className="arena-eyebrow"
@@ -217,7 +217,7 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
           >
             Question {index + 1} / {questions.length}
           </motion.div>
-          <div className="flex gap-2.5 mt-2.5">
+          <div className="flex flex-wrap gap-2.5 mt-2.5">
             <div className="px-3 py-1.5 rounded-xl border border-arena-line bg-white/[.03] text-sm font-semibold backdrop-blur-sm">
               Score <span className="text-arena-accent font-display">{score}</span>
             </div>
@@ -343,6 +343,7 @@ export default function QuizGame({ onExit }: { onExit?: () => void }) {
                     : "Not this time."}
               </b>{" "}
               {q.explanation}
+              {q.verification && <details className="mt-4 text-sm"><summary className="cursor-pointer font-semibold">Review sources</summary><div className="flex flex-wrap gap-3 my-3">{q.verification.sources.filter(s => s.url.startsWith("https://")).map(s => <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="underline">{s.title}</a>)}</div>{q.verification.searchHtml && <iframe title="Search suggestions" sandbox="" srcDoc={q.verification.searchHtml} className="w-full border-0" />}</details>}
             </motion.div>
           )}
 

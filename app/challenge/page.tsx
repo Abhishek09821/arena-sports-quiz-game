@@ -44,7 +44,6 @@ import {
 import QuizGame from "@/components/QuizGame";
 import { audio } from "@/lib/audio";
 import { validateQuestions, parseCSV } from "@/lib/validation";
-import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/components/AuthContext";
 import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
 
@@ -222,7 +221,8 @@ function ChallengeContent() {
           id: q.id || `chal-q-${i}`,
           sport: q.sport || data.challenge.sport || "All Sports",
           difficulty: q.difficulty || data.challenge.difficulty || "Mixed",
-          year: q.year || 2024,
+          year: q.year,
+          category: q.category,
           question: q.question_text || q.question,
           options,
           answer,
@@ -253,6 +253,10 @@ function ChallengeContent() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || "Unable to review this challenge.");
+      if (sessionId) {
+        const tracked = await fetch("/api/challenge/activity", { method:"POST", headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`}, body:JSON.stringify({challengeId:sessionId}) });
+        if (!tracked.ok) throw new Error("Could not register this play. Please retry.");
+      }
       recordQuestionsAsSeen(result.questions);
       audio.unlock();
       useQuizStore.getState().start(result.questions, { sport: sport as Sport, difficulty: difficulty as Difficulty, mode: "challenge", sessionId });
@@ -269,6 +273,7 @@ function ChallengeContent() {
 
   // Auto-load if code is in URL parameters (?code=XYZ123)
   useEffect(() => {
+    if (searchParams.get("join") === "1") setActiveTab("play_code");
     const queryCode = searchParams.get("code");
     if (queryCode) {
       const clean = queryCode.trim().toUpperCase();
@@ -339,7 +344,7 @@ function ChallengeContent() {
           category: activeTournament,
           excludeStems: [
             ...getSeenStems(),
-            ...questions.map((q) => q.question.slice(0, 45)),
+            ...questions.map((q) => q.question),
           ],
           excludeAnswers: [
             ...getSeenAnswers(80),
@@ -392,7 +397,7 @@ function ChallengeContent() {
           category: target.category || (selectedTournament !== "All" ? selectedTournament : undefined),
           excludeStems: [
             ...getSeenStems(),
-            ...questions.filter((_, i) => i !== index).map((q) => q.question.slice(0, 45)),
+            ...questions.filter((_, i) => i !== index).map((q) => q.question),
           ],
           excludeAnswers: [
             ...getSeenAnswers(80),
@@ -619,9 +624,11 @@ function ChallengeContent() {
       if (res.ok && data.success && data.code) {
         finalCode = data.code;
         finalId = data.challengeId || finalId;
-      }
+      } else { throw new Error(data.error || "Challenge was not saved."); }
     } catch (dbErr) {
-      console.warn("[Challenge Save] Network/Supabase issue; saved locally to device:", dbErr);
+      alert(dbErr instanceof Error ? dbErr.message : "Challenge was not saved. Please retry.");
+      setIsSaving(false);
+      return;
     }
 
     // Persist in localStorage so it survives reload and logout
@@ -674,7 +681,8 @@ function ChallengeContent() {
   if (started) return <QuizGame onExit={() => setStarted(false)} />;
 
   return (
-    <main className="arena-container pb-20">
+    <main className="arena-container arena-mode-page pb-20">
+      <Link href="/challenge/activity" className="arena-btn mt-6">My challenge players & activity</Link>
       {isReviewing && <div role="status" className="arena-container py-4 text-sm text-arena-accent">Reviewing questions and replacing repeats before your round...</div>}
       <div className="pt-10 pb-6">
         <Link

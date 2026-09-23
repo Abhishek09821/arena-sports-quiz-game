@@ -22,11 +22,8 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
     const { data: challengeSet } = await query.maybeSingle();
 
     if (challengeSet) {
-      await adminClient
-        .from("challenge_sets")
-        .update({ play_count: (challengeSet.play_count || 0) + 1 })
-        .eq("id", challengeSet.id);
-
+      const {count, error: countError} = await adminClient.from("challenge_plays").select("user_id",{count:"exact",head:true}).eq("challenge_id",challengeSet.id);
+      if (countError) throw new Error("Challenge activity is unavailable.");
       const { data: questions } = await adminClient
         .from("challenge_questions")
         .select("*")
@@ -34,8 +31,8 @@ export async function GET(req: Request, props: { params: Promise<{ id: string }>
         .order("question_order", { ascending: true });
 
       return NextResponse.json({
-        challenge: challengeSet,
-        questions: questions || [],
+        challenge: {...challengeSet, play_count:count || 0},
+        questions: challengeSet.settings?.questions || questions || [],
       });
     }
 

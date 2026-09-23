@@ -18,7 +18,7 @@ import { useAuth } from "@/components/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import QuizGame from "@/components/QuizGame";
 import { getSeenStems, getSeenAnswers, recordQuestionsAsSeen } from "@/lib/seen_history";
-import { ArrowLeft, Play, Sparkles, Loader2, AlertTriangle, RefreshCw, Star, User } from "lucide-react";
+import { ArrowLeft, Play, Loader2, AlertTriangle, RefreshCw, Star } from "lucide-react";
 import Link from "next/link";
 import { motion, useInView, AnimatePresence } from "motion/react";
 
@@ -50,7 +50,7 @@ function IdolContent() {
   const { token, user, openAuthModal } = useAuth();
   const searchParams = useSearchParams();
   const paramSport = searchParams.get("sport") as Sport;
-  const initialSport = SPORT_LIST.includes(paramSport) ? paramSport : "Cricket";
+  const initialSport = SPORT_LIST.some(s => s === paramSport) ? paramSport : "Cricket";
   const [sport, setSport] = useState<Sport>(initialSport);
   useSportTheme(sport);
   const [selectedIdol, setSelectedIdol] = useState<string>("");
@@ -132,7 +132,7 @@ function IdolContent() {
 
       const data = await res.json();
 
-      if (!res.ok || !data.success || !Array.isArray(data.questions) || data.questions.length === 0) {
+      if (!res.ok || !data.success || !Array.isArray(data.questions) || data.questions.length !== count) {
         throw new Error(data?.message || data?.error || "Failed to generate idol questions. Please try again.");
       }
 
@@ -162,7 +162,7 @@ function IdolContent() {
   const selectedIdolData = idolList.find((p) => p.name === selectedIdol);
 
   return (
-    <main className="arena-container pb-16">
+    <main className="arena-container arena-mode-page pb-16">
       <div className="pt-10 pb-6">
         <Link
           href="/"
@@ -222,7 +222,7 @@ function IdolContent() {
             Choose your sport
           </h3>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            {SPORT_LIST.map((s) => {
+            {SPORT_LIST.filter(s => s !== "General Knowledge").map((s) => {
               const meta = SPORT_META[s];
               const active = sport === s;
               return (
@@ -254,30 +254,12 @@ function IdolContent() {
           <h3 className="font-display font-bold tracking-tight mt-1 mb-4 text-lg">
             Pick your idol
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {idolList.map((idol) => {
-              const active = selectedIdol === idol.name;
-              return (
-                <button
-                  key={idol.name}
-                  className="arena-card arena-tile text-center relative py-3 px-2"
-                  data-active={active ? "true" : undefined}
-                  onClick={() => {
-                    setSelectedIdol(idol.name);
-                    audio.select();
-                  }}
-                >
-                  <div className="text-lg mb-0.5">
-                    <User size={18} className="inline-block text-arena-accent" />
-                  </div>
-                  <div className="font-semibold text-xs leading-tight">{idol.name}</div>
-                  {idol.nickname && (
-                    <div className="text-[10px] text-arena-muted mt-0.5">&ldquo;{idol.nickname}&rdquo;</div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <label className="block text-sm mb-2" htmlFor="idol-select">Choose one of 10 idols or add your own</label>
+          <select id="idol-select" className="arena-input w-full" value={idolList.some(p => p.name === selectedIdol) ? selectedIdol : "custom"} onChange={e => setSelectedIdol(e.target.value === "custom" ? "" : e.target.value)}>
+            {idolList.slice(0, 10).map(idol => <option key={idol.name} value={idol.name}>{idol.name}</option>)}
+            <option value="custom">+ Add your idol</option>
+          </select>
+          {!idolList.some(p => p.name === selectedIdol) && <label className="block mt-4 text-sm">Athlete’s full name<input className="arena-input w-full mt-2" maxLength={80} placeholder="e.g. Erling Haaland" value={selectedIdol} onChange={e => setSelectedIdol(e.target.value)} /><span className="text-arena-muted">Choose the athlete’s sport above. Every question will focus on this athlete.</span></label>}
           {selectedIdolData && (
             <div className="mt-3 p-3 rounded-xl bg-arena-accent/5 border border-arena-accent/20">
               <p className="text-xs text-arena-muted">

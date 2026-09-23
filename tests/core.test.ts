@@ -313,12 +313,12 @@ console.log("\n── Option Randomization & Answer Mapping ───");
 
 test("option randomization guarantees 100% correct answer mapping across 100 runs", () => {
   const sample = {
-    sport: "Formula 1",
+    sport: "Football",
     difficulty: "Easy",
-    question: "Who won the Formula 1 World Drivers Championship in 2009?",
-    options: ["Jenson Button", "Sebastian Vettel", "Lewis Hamilton", "Mark Webber"],
-    answer: "Jenson Button",
-    explanation: "Jenson Button won the 2009 championship with Brawn GP.",
+    question: "Which team won the UEFA Champions League in 2009?",
+    options: ["Barcelona", "Manchester United", "Chelsea", "Arsenal"],
+    answer: "Barcelona",
+    explanation: "Barcelona defeated Manchester United in the 2009 final.",
   };
 
   const valRes = validateQuestion(sample);

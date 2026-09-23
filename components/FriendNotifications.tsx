@@ -1,0 +1,6 @@
+"use client";
+import {useEffect,useState} from "react";
+import Link from "next/link";
+import {useAuth} from "./AuthContext";
+import {supabase} from "@/lib/supabase";
+export default function FriendNotifications(){const {user,token}=useAuth();const [count,setCount]=useState(0);useEffect(()=>{if(!token||!user)return;let active=true;async function load(){try{const r=await fetch("/api/friends",{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)return;const d=await r.json();if(active)setCount(d.invitations.length+d.friends.filter((f:{status:string;recipient:string})=>f.status==="pending"&&f.recipient===user?.id).length);}catch{/* retry at next poll */}}void load();const timer=setInterval(load,15000);const channel=supabase?.channel(`alerts-${user.id}`).on("postgres_changes",{event:"*",schema:"public",table:"game_invitations",filter:`recipient=eq.${user.id}`},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"friendships",filter:`recipient=eq.${user.id}`},()=>void load()).subscribe();return()=>{active=false;clearInterval(timer);if(channel)void supabase?.removeChannel(channel);};},[token,user]);if(!user||!count)return null;return <Link href="/friends" aria-live="polite" className="fixed bottom-5 right-4 z-40 arena-btn arena-btn-primary shadow-xl">Friends · {count} new {count===1?"notification":"notifications"}</Link>;}

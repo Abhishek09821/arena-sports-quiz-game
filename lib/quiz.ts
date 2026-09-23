@@ -6,7 +6,7 @@
    - Zero repetition guarantees
    ═══════════════════════════════════════════════════════════════ */
 
-import { type Difficulty, type Question, type Sport } from "@/data/questions";
+import { SPORT_LIST, type Difficulty, type Question, type Sport } from "@/data/questions";
 
 /** Fisher-Yates array shuffle */
 export function shuffle<T>(items: T[]): T[] {
@@ -222,6 +222,7 @@ export function buildGame(options: SelectionOptions): Question[] {
   );
 
   const pool = SYNC_FALLBACK_POOL.filter((q) => {
+    if (!SPORT_LIST.some(s => s === q.sport)) return false;
     if (sport && sport !== "All Sports" && q.sport !== sport) return false;
     if (isTournamentSpecific && q.category && q.category !== category) return false;
     if (difficulty && difficulty !== "Mixed" && q.difficulty !== difficulty) return false;

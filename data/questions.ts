@@ -6,17 +6,18 @@ export const SPORT_LIST = [
   "Cricket",
   "Football",
   "Basketball",
-  "Formula 1",
   "WWE/WWF",
-  "UFC",
+  "General Knowledge",
 ] as const;
 
-export type Sport = (typeof SPORT_LIST)[number];
+export type Sport = (typeof SPORT_LIST)[number] | "Formula 1" | "UFC";
+export const MIXED_SPORTS = SPORT_LIST.filter(s => s !== "General Knowledge");
 
 export const DIFFICULTY_LIST = ["Easy", "Medium", "Hard", "Legendary"] as const;
 export type Difficulty = (typeof DIFFICULTY_LIST)[number];
 
 export const SPORT_META: Record<Sport, { icon: string; color: string; desc: string }> = {
+  "General Knowledge": { icon: "GK", color: "#a78bfa", desc: "History, science, geography, arts & culture" },
   Cricket: { icon: "CR", color: "#71e6ff", desc: "ICC World Cups, IPL, Ashes & T20 records" },
   Football: { icon: "FB", color: "#62e6a4", desc: "FIFA World Cup, UEFA Champions League, Premier League" },
   Basketball: { icon: "BB", color: "#fbbf24", desc: "NBA Finals, Playoff thrillers & Olympic hoops" },
@@ -26,6 +27,7 @@ export const SPORT_META: Record<Sport, { icon: string; color: string; desc: stri
 };
 
 export const TOURNAMENTS_BY_SPORT: Record<Sport, string[]> = {
+  "General Knowledge": ["All Topics"],
   Cricket: [
     "All Tournaments",
     "ICC Cricket World Cup",
@@ -78,6 +80,7 @@ export const TOURNAMENTS_BY_SPORT: Record<Sport, string[]> = {
 };
 
 export interface Question {
+  verification?: {sources: {title:string;url:string}[];searchHtml?:string};
   id: string;
   sport: Sport;
   year: number;
@@ -121,10 +124,10 @@ export const q = (
 /** Decade filter options for user-selectable era */
 export const DECADE_OPTIONS = [
   { label: "All Decades", value: "all", range: [1975, 2026] as [number, number] },
-  { label: "1980–1990", value: "1980-1990", range: [1980, 1990] as [number, number] },
-  { label: "1990–2000", value: "1990-2000", range: [1990, 2000] as [number, number] },
-  { label: "2000–2010", value: "2000-2010", range: [2000, 2010] as [number, number] },
-  { label: "2010–2020", value: "2010-2020", range: [2010, 2020] as [number, number] },
+  { label: "1980–1989", value: "1980-1990", range: [1980, 1989] as [number, number] },
+  { label: "1990–1999", value: "1990-2000", range: [1990, 1999] as [number, number] },
+  { label: "2000–2009", value: "2000-2010", range: [2000, 2009] as [number, number] },
+  { label: "2010–2019", value: "2010-2020", range: [2010, 2019] as [number, number] },
   { label: "2020–Current", value: "2020-current", range: [2020, 2026] as [number, number] },
 ] as const;
 
@@ -132,6 +135,7 @@ export type DecadeOption = (typeof DECADE_OPTIONS)[number]["value"];
 
 /** Top 10 all-time legends for each sport — used in "Know Your Idol" mode */
 export const IDOL_BY_SPORT: Record<Sport, { name: string; nickname?: string; era: string }[]> = {
+  "General Knowledge": [],
   Cricket: [
     { name: "Sachin Tendulkar", nickname: "Master Blaster", era: "1989–2013" },
     { name: "Virat Kohli", nickname: "King Kohli", era: "2008–present" },

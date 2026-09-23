@@ -1,6 +1,12 @@
 import { SPORT_LIST, DIFFICULTY_LIST, type Sport, type Difficulty } from "@/data/questions";
 
+export interface VerificationEvidence {
+  sources: { title: string; url: string }[];
+  searchHtml?: string;
+}
+
 export interface RawGeneratedQuestion {
+  verification?: VerificationEvidence;
   id?: string;
   sport: string;
   difficulty: string;
@@ -14,6 +20,7 @@ export interface RawGeneratedQuestion {
 }
 
 export interface ValidatedQuestion {
+  verification?: VerificationEvidence;
   id: string;
   sport: Sport;
   difficulty: Difficulty;
@@ -40,6 +47,7 @@ export interface ValidationResult {
 export function normalizeQuestionText(text: string): string {
   if (!text) return "";
   return text
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim()
     .replace(/\s+/g, " ")
@@ -129,7 +137,7 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
 
   if (sportAliasMap[rawSportLower] || sportAliasMap[normalizedSportKey]) {
     resolvedSport = sportAliasMap[rawSportLower] || sportAliasMap[normalizedSportKey];
-  } else if (validSports.has(q.sport as Sport)) {
+  } else if (validSports.has(q.sport as (typeof SPORT_LIST)[number])) {
     resolvedSport = q.sport as Sport;
   } else {
     const matched = SPORT_LIST.find((s) => s.toLowerCase() === rawSportLower || s.toLowerCase() === normalizedSportKey);
@@ -139,6 +147,8 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
       errors.push(`Invalid sport '${q.sport}'. Must be one of: ${SPORT_LIST.join(", ")}`);
     }
   }
+
+  if (resolvedSport === "UFC" || resolvedSport === "Formula 1") errors.push("This sport is no longer supported.");
 
   // Strict Association Football verification: Reject any American Football / NFL content
   if (resolvedSport === "Football") {
@@ -264,8 +274,8 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
 
   // 7. Year (Strictly 1975 to 2026)
   let year = typeof q.year === "number" && !isNaN(q.year) ? Math.floor(q.year) : 2024;
-  if (year < 1975 || year > 2026) {
-    errors.push(`Question year (${year}) is outside strict 1975-2026 window. All trivia must be from 1975 to 2026.`);
+  if (year < 1800 || year > new Date().getFullYear()) {
+    errors.push(`Question year (${year}) is outside the supported historical range. Future events are not allowed.`);
   }
 
   // 7b. Decade Range Enforcement
@@ -394,6 +404,10 @@ export function validateQuestion(raw: unknown, targetTournament?: string, target
       correctAnswerText: answerText,
       explanation,
       questionHash,
+      verification: q.verification && Array.isArray(q.verification.sources) ? {
+        sources: q.verification.sources.filter(s => typeof s?.url === "string" && s.url.startsWith("https://") && typeof s.title === "string"),
+        searchHtml: typeof q.verification.searchHtml === "string" ? q.verification.searchHtml : undefined,
+      } : undefined,
       source: q.source || "AI Generated",
     },
   };
