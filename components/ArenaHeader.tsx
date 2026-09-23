@@ -31,7 +31,10 @@ export default function ArenaHeader() {
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll, { passive: true });
-    useEffect(() => {
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
     if (!mobileOpen) return;
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileOpen(false); };
     document.addEventListener("keydown", close);
@@ -39,9 +42,6 @@ export default function ArenaHeader() {
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", close); document.body.style.overflow = overflow; };
   }, [mobileOpen]);
-
-  return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   // Close mobile menu on route change
   useEffect(() => {
